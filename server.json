@@ -1,0 +1,32 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.cargofy/atlas",
+  "description": "ATLAS — AI Transport Logistics Agent Standard. Open-source MCP server that gives AI agents deep context about logistics operations without data leaving your infrastructure. Connects to TMS, ERP, email and documents.",
+  "repository": {
+    "url": "https://github.com/cargofy/ATLAS.git",
+    "source": "github"
+  },
+  "version": "1.0.0",
+  "icons": [
+    {
+      "src": "https://cargohub.co/favicon.ico",
+      "mimeType": "image/x-icon"
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "docker.io/cargofy/atlas:latest",
+      "runtimeHint": "docker",
+      "transport": {
+        "type": "http"
+      }
+    }
+  ],
+  "remotes": [
+    {
+      "transportType": "http",
+      "url": "https://atlas.cargohub.co/mcp"
+    }
+  ]
+}
