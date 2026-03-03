@@ -1,52 +1,159 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# ATLAS config.example.yml
+# Copy to config.yml and customize for your installation.
+# Env vars: use ${VAR_NAME} syntax anywhere in this file.
+# ─────────────────────────────────────────────────────────────────────────────
+
 atlas:
   name: "ATLAS @ Your Company"
-  port: 3000
-  log_level: info
+  port: 3000              # HTTP port for Web UI + MCP/HTTP + REST API
 
-# Agent authentication — which agents can query this instance
+# ─── Storage ─────────────────────────────────────────────────────────────────
+
+storage:
+  path: "./atlas.db"      # SQLite file path. Use absolute path in production.
+
+# ─── Auth ────────────────────────────────────────────────────────────────────
+# Bearer tokens for MCP/HTTP clients (AI agents, Cargofy, etc.)
+# Leave empty to run in open/dev mode (no auth required).
+
 auth:
   tokens:
-    - name: "Cargofy Platform"
-      token: "your-secret-token-here"
-      permissions: ["read", "query"]
+    - id: "cargofy-agent"
+      token: "${CARGOFY_MCP_TOKEN}"
+      description: "Cargofy AI workforce agents"
+      permissions: [read]
 
-# Connectors — connect your data sources
+    # - id: "my-claude-desktop"
+    #   token: "local-dev-token"
+    #   description: "Local development"
+    #   permissions: [read]
+
+# ─── Connectors ──────────────────────────────────────────────────────────────
+# Each connector pulls data from a source and maps it to ATLAS standard models.
+# ATLAS syncs on startup and then on the configured interval.
+#
+# Supported types: rest_api
+# Planned:         filesystem, imap
+#
+# Mapping syntax:
+#   field: "$.path.to.value"          — JSONPath-lite
+#   field: "static_value"             — static string (for constants like country code)
+#   field:                            — value map (translate codes to standard names)
+#     source: "$.status_code"
+#     map: { "1": "pending", "2": "in_transit", "3": "delivered", "9": "exception" }
+#     default: "unknown"
+#   field:                            — nested object
+#     city: "$.from_city"
+#     country: "$.from_country"
+
 connectors:
 
-  email:
-    enabled: true
-    type: imap  # imap | exchange | gmail
-    host: mail.yourcompany.com
-    port: 993
-    ssl: true
-    username: logistics@yourcompany.com
-    password: "${EMAIL_PASSWORD}"
-    folders: ["INBOX", "Sent", "Logistics"]
-    sync_days_back: 365
+  # ── Example: Generic REST API (shipments) ──────────────────────────────────
+  - id: tms_shipments
+    enabled: false                    # set to true to activate
+    type: rest_api
+    name: "TMS — Shipments"
+    entity: shipments                 # which ATLAS table to populate
+    endpoint: "https://tms.yourcompany.com/api/v1/shipments"
+    auth:
+      type: bearer                    # bearer | basic | api_key
+      token: "${TMS_API_TOKEN}"
+    sync:
+      interval_minutes: 15
+    mapping:
+      id: "$.tracking_id"
+      status:
+        source: "$.state_code"
+        map:
+          "CREATED": "pending"
+          "IN_TRANSIT": "in_transit"
+          "DELIVERED": "delivered"
+          "EXCEPTION": "exception"
+        default: "unknown"
+      mode: "road"                    # static value
+      origin:
+        city: "$.origin_city"
+        country: "$.origin_country_code"
+      destination:
+        city: "$.destination_city"
+        country: "$.destination_country_code"
+      carrier_id: "$.carrier_code"
+      planned_delivery_date: "$.estimated_delivery"
 
-  filesystem:
-    enabled: true
-    paths:
-      - /data/contracts
-      - /data/rate-sheets
-      - /data/bol
-    file_types: [".pdf", ".docx", ".xlsx", ".csv"]
-
-  api:
+  # ── Example: Generic REST API (carriers) ───────────────────────────────────
+  - id: tms_carriers
     enabled: false
-    endpoints:
-      - name: "TMS"
-        url: "https://tms.yourcompany.com/api/v1"
-        auth_header: "Authorization: Bearer ${TMS_API_KEY}"
-        resources: ["shipments", "carriers", "routes"]
+    type: rest_api
+    name: "TMS — Carriers"
+    entity: carriers
+    endpoint: "https://tms.yourcompany.com/api/v1/carriers"
+    auth:
+      type: bearer
+      token: "${TMS_API_TOKEN}"
+    sync:
+      interval_minutes: 60            # carriers change rarely
+    mapping:
+      id: "$.carrier_id"
+      name: "$.carrier_name"
+      type:
+        source: "$.carrier_type"
+        map:
+          "TRUCK": "trucking"
+          "SEA": "shipping_line"
+          "AIR": "airline"
+          "RAIL": "rail"
+        default: "trucking"
+      country: "$.country_iso"
+      rating: "$.performance_score"
 
-# Storage — all local, nothing leaves your infrastructure
-storage:
-  vector_store: local  # local | postgres
-  database: sqlite     # sqlite | postgres
-  data_dir: /data/atlas
+  # ── Example: Rate API ───────────────────────────────────────────────────────
+  - id: rate_api
+    enabled: false
+    type: rest_api
+    name: "Rate Management System"
+    entity: rates
+    endpoint: "https://rates.yourcompany.com/api/active"
+    auth:
+      type: api_key
+      header: "X-API-Key"
+      key: "${RATES_API_KEY}"
+    sync:
+      interval_minutes: 60
+    mapping:
+      id: "$.rate_id"
+      carrier_id: "$.carrier"
+      origin_country: "$.from_country"
+      destination_country: "$.to_country"
+      mode: "$.transport_mode"
+      valid_from: "$.effective_date"
+      valid_to: "$.expiry_date"
+      price: "$.price_per_unit"
+      currency: "$.currency"
 
-# Logistics data models to extract and index
+  # ── Example: Logistics events / scan history ────────────────────────────────
+  - id: scan_events
+    enabled: false
+    type: rest_api
+    name: "Scan Events Feed"
+    entity: events
+    endpoint: "https://tms.yourcompany.com/api/v1/events?since=${LAST_SYNC}"
+    auth:
+      type: bearer
+      token: "${TMS_API_TOKEN}"
+    sync:
+      interval_minutes: 5             # high-frequency for realtime tracking
+    mapping:
+      id: "$.event_id"
+      shipment_id: "$.tracking_number"
+      timestamp: "$.scanned_at"
+      type: "$.event_type"
+      is_exception: "$.is_anomaly"
+      location: "$.branch_name"
+
+# ─── Models ──────────────────────────────────────────────────────────────────
+# Which ATLAS data models to enable. All enabled by default.
+
 models:
   shipments: true
   carriers: true
