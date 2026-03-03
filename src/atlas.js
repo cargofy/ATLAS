@@ -35,6 +35,18 @@ export class Atlas {
 
   // ─── DB init ─────────────────────────────────────────────────────────────
 
+  async initDbAsync(dbPath) {
+    const dbType = this.config?.storage?.database ?? 'sqlite';
+    if (dbType === 'postgres') {
+      const { PgAdapter } = await import('./pg-adapter.js');
+      this.db = new PgAdapter(dbPath ?? this.config?.storage?.path);
+    } else {
+      this.initDb(dbPath);
+      return;
+    }
+    await this.db.exec(this._getCoreSchemaSQL());
+  }
+
   initDb(dbPath) {
     const path = dbPath ?? this.config?.storage?.path ?? ":memory:";
     this.db = new Database(path);

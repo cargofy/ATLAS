@@ -17,6 +17,8 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { z } from "zod";
 
 import { Atlas } from "./atlas.js";
+import { WebhookEmitter } from "./webhooks.js";
+import { buildHealthReport } from "./health.js";
 import { ConnectorRunner } from "./connector-runner.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -33,6 +35,10 @@ atlas.initDb(process.env.ATLAS_DB_PATH ?? atlas.config?.storage?.path ?? ":memor
 const runner = new ConnectorRunner(atlas, atlas.config);
 runner.start();
 
+// Webhook emitter
+const webhooks = new WebhookEmitter(atlas.config);
+const SERVER_START = Date.now();
+
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
 const configuredTokens = (atlas.config?.auth?.tokens ?? []).map(t => ({
@@ -41,9 +47,9 @@ const configuredTokens = (atlas.config?.auth?.tokens ?? []).map(t => ({
   permissions: t.permissions ?? ['read'],
 }));
 
-function checkAuth(req) {
+function checkAuth(req, requiredPermission) {
   // No tokens configured → open access (dev mode)
-  if (!configuredTokens.length) return { ok: true, id: 'anonymous' };
+  if (!configuredTokens.length) return { ok: true, id: 'anonymous', permissions: ['*'] };
 
   const authHeader = req.headers['authorization'] ?? '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
@@ -51,7 +57,16 @@ function checkAuth(req) {
 
   const found = configuredTokens.find(t => t.token === token);
   if (!found) return { ok: false, reason: 'Invalid token' };
-  return { ok: true, id: found.id, permissions: found.permissions };
+
+  // Scoped permissions check (ATLAS-13)
+  if (requiredPermission) {
+    const perms = found.permissions ?? ['read'];
+    const granted = perms.includes('*') || perms.includes(requiredPermission) ||
+      perms.some(p => p === 'read' && requiredPermission.endsWith(':read'));
+    if (!granted) return { ok: false, reason: `Insufficient permissions. Required: ${requiredPermission}` };
+  }
+
+  return { ok: true, id: found.id, permissions: found.permissions ?? ['read'] };
 }
 
 // ─── MCP Server ──────────────────────────────────────────────────────────────
@@ -304,6 +319,16 @@ const httpServer = createServer(async (req, res) => {
         json({ ok: true, result });
       } catch (e) { json({ error: e.message }, 400); }
     });
+    return;
+  }
+
+  // ── Health endpoint (ATLAS-14) ───────────────────────────────────────────────
+
+  if (path === "/api/health" && req.method === "GET") {
+    const report = buildHealthReport(atlas, runner, SERVER_START);
+    const statusCode = report.status === 'healthy' ? 200 : 207;
+    res.writeHead(statusCode, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(report));
     return;
   }
 

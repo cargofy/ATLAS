@@ -166,15 +166,15 @@ export class ConnectorRunner {
   }
 
   _parseFile(filepath) {
-    const ext  = extname(filepath).slice(1).toLowerCase();
-    const text = readFileSync(filepath, 'utf8');
+    const ext = extname(filepath).slice(1).toLowerCase();
 
     if (ext === 'json') {
-      const data = JSON.parse(text);
+      const data = JSON.parse(readFileSync(filepath, 'utf8'));
       return Array.isArray(data) ? data : [data];
     }
+
     if (ext === 'csv') {
-      const lines  = text.trim().split('\n');
+      const lines   = readFileSync(filepath, 'utf8').trim().split('\n');
       if (lines.length < 2) return [];
       const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
       return lines.slice(1).map(line => {
@@ -182,6 +182,19 @@ export class ConnectorRunner {
         return Object.fromEntries(headers.map((h, i) => [h, vals[i] ?? '']));
       });
     }
+
+    if (ext === 'xlsx' || ext === 'xls') {
+      try {
+        const XLSX = (await import('xlsx')).default;
+        const wb   = XLSX.readFile(filepath);
+        const ws   = wb.Sheets[wb.SheetNames[0]];
+        return XLSX.utils.sheet_to_json(ws, { defval: '' });
+      } catch (e) {
+        console.error(`[ATLAS] XLSX parse error for ${filepath}: ${e.message}`);
+        return [];
+      }
+    }
+
     return [];
   }
 
