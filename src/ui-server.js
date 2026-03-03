@@ -307,6 +307,28 @@ const httpServer = createServer(async (req, res) => {
     return;
   }
 
+  // ── Admin endpoints (ATLAS-08, ATLAS-09) ─────────────────────────────────────
+
+  if (path === "/api/admin/reload" && req.method === "POST") {
+    const result = atlas.reloadConfig();
+    runner.stop();
+    runner.connectors = (atlas.config?.connectors ?? []).filter(c => c.enabled !== false);
+    runner.start();
+    return json({ ...result, connectors_restarted: runner.connectors.length });
+  }
+
+  if (path === "/api/admin/prune" && req.method === "POST") {
+    let body = ""; req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const { retention_days } = body ? JSON.parse(body) : {};
+        const deleted = atlas.pruneOldRecords(retention_days);
+        json({ ok: true, deleted, timestamp: new Date().toISOString() });
+      } catch (e) { json({ error: e.message }, 400); }
+    });
+    return;
+  }
+
   // ── Web UI ────────────────────────────────────────────────────────────────────
 
   if (path === "/" || path === "/index.html") {

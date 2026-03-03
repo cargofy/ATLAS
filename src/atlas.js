@@ -10,7 +10,7 @@ import YAML from "yaml";
 import Database from "better-sqlite3";
 import {
   CORE_SCHEMA, EXTENSION_SCHEMA, PARTY_SCHEMA,
-  MARKETPLACE_SCHEMA, WORKFLOW_SCHEMA, MODEL_REGISTRY, MODEL_ALIASES
+  MARKETPLACE_SCHEMA, WORKFLOW_SCHEMA, ISSUE_SCHEMA, MODEL_REGISTRY, MODEL_ALIASES
 } from "./models.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -169,6 +169,7 @@ export class Atlas {
       ...PARTY_SCHEMA,
       ...MARKETPLACE_SCHEMA,
       ...WORKFLOW_SCHEMA,
+      ...ISSUE_SCHEMA,
     };
 
     // Map singular config key → plural table name
@@ -178,6 +179,7 @@ export class Atlas {
       tender_award: 'tender_awards', dispatch: 'dispatches',
       leg: 'legs', customs_entry: 'customs_entries',
       managed_relationship: 'managed_relationships',
+      issue: 'issues',
       load_listing: 'load_listings', asset_availability: 'asset_availability',
       freight_offer: 'freight_offers',
       review: 'reviews', market_signal: 'market_signals', claim: 'claims',
@@ -573,6 +575,22 @@ export class Atlas {
     return status;
   }
 
+  // ─── Issues ──────────────────────────────────────────────────────────────
+
+  getActiveIssues({ type, severity, requires_replanning, limit = 50 } = {}) {
+    if (!this._enabledModels.has('issues')) return { issues: [], total: 0 };
+    const conds = ["status NOT IN ('resolved','cancelled')"];
+    const params = [];
+    if (type)     { conds.push("type = ?");     params.push(type); }
+    if (severity) { conds.push("severity = ?"); params.push(severity); }
+    if (requires_replanning) { conds.push("requires_replanning = 1"); }
+    const where = ` WHERE ${conds.join(" AND ")}`;
+    const rows = this.db
+      .prepare(`SELECT data FROM issues${where} ORDER BY reported_at DESC LIMIT ?`)
+      .all(...params, limit);
+    return { issues: rows.map(r => JSON.parse(r.data)), total: rows.length };
+  }
+
   // ─── Closure checklist ───────────────────────────────────────────────────
 
   getClosureChecklist(shipmentId) {
@@ -639,6 +657,61 @@ export class Atlas {
         : "No matching records found.",
     };
   }
+
+  // ─── Data Retention / Pruning (ATLAS-08) ─────────────────────────────────
+  // Removes delivered/cancelled shipments + their events older than N days.
+  // Called automatically on startup and can be triggered via POST /api/admin/prune.
+
+  pruneOldRecords(retentionDays) {
+    const days = retentionDays ?? this.config?.storage?.retention_days ?? 90;
+    const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+    const deleted = {};
+
+    try {
+      // Find old closed shipment ids
+      const oldIds = this.db
+        .prepare(`SELECT id FROM shipments WHERE status IN ('delivered','cancelled') AND synced_at < ?`)
+        .all(cutoff).map(r => r.id);
+
+      if (oldIds.length) {
+        const placeholders = oldIds.map(() => '?').join(',');
+        const evDel = this.db.prepare(`DELETE FROM tracking_events WHERE shipment_id IN (${placeholders})`).run(...oldIds);
+        const docDel = this.db.prepare(`DELETE FROM documents WHERE shipment_id IN (${placeholders})`).run(...oldIds);
+        const shpDel = this.db.prepare(`DELETE FROM shipments WHERE id IN (${placeholders})`).run(...oldIds);
+        deleted.shipments = shpDel.changes;
+        deleted.tracking_events = evDel.changes;
+        deleted.documents = docDel.changes;
+      }
+
+      // Prune old rates (expired > retention cutoff)
+      const rateDel = this.db
+        .prepare(`DELETE FROM rates WHERE valid_to IS NOT NULL AND valid_to < ?`)
+        .run(cutoff);
+      deleted.rates = rateDel.changes;
+
+      console.error(`[ATLAS] Pruned: ${JSON.stringify(deleted)} (cutoff: ${cutoff})`);
+    } catch (e) {
+      console.error(`[ATLAS] Prune error: ${e.message}`);
+    }
+    return deleted;
+  }
+
+  // ─── Config Reload (ATLAS-09) ────────────────────────────────────────────
+  // Reload config.yml without restarting the server.
+  // Re-initializes extension models if models: section changed.
+
+  reloadConfig(configPath) {
+    try {
+      this.loadConfig(configPath ?? process.env.ATLAS_CONFIG);
+      this._initExtensionModels(); // create any newly enabled tables
+      console.error('[ATLAS] Config reloaded');
+      return { ok: true, message: 'Config reloaded', timestamp: new Date().toISOString() };
+    } catch (e) {
+      console.error(`[ATLAS] Config reload error: ${e.message}`);
+      return { ok: false, error: e.message };
+    }
+  }
+
 }
 
 export default Atlas;

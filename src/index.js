@@ -307,6 +307,23 @@ server.tool("get_anomalies",
   }
 );
 
+
+server.tool("get_active_issues",
+  "Return all active (unresolved) operational disruption issues. Covers: carrier no-show, cargo not ready, mechanical failure, customs hold, border closure, tender withdrawal, and 20+ other standard logistics disruption types.",
+  {
+    type:                z.string().optional().describe("Issue type: carrier_no_show, cargo_not_ready, mechanical_failure, delay_border, tender_withdrawal, etc."),
+    severity:            z.enum(["low","medium","high","critical"]).optional(),
+    requires_replanning: z.boolean().optional().describe("Filter to only issues that require immediate replanning"),
+    limit:               z.number().int().min(1).max(200).optional().default(50),
+  },
+  async (args) => {
+    try {
+      const r = atlas.getActiveIssues(args);
+      return ok({ ...r, checked_at: new Date().toISOString() });
+    } catch (e) { return err("INTERNAL_ERROR", e.message); }
+  }
+);
+
 // ─── Start ────────────────────────────────────────────────────────────────────
 
 const transport = new StdioServerTransport();

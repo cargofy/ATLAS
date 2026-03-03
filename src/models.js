@@ -527,3 +527,77 @@ export const CLAIM_STATUS = ['draft', 'filed', 'under_review', 'accepted', 'reje
 
 // Document signature status
 export const DOCUMENT_SIGNATURE_STATUS = ['draft', 'sent', 'partially_signed', 'fully_signed', 'rejected', 'expired'];
+
+// ─── Issue model — operational disruption events ─────────────────────────────
+// An Issue is a real-time operational disruption that may require replanning.
+// Different from Claim (post-factum compensation) — Issues are detected NOW
+// and trigger immediate response.
+//
+// Industry references:
+//   DCSA ShipmentEvent exception codes
+//   project44 exception type taxonomy
+//   IATA delay code taxonomy (adapted for road/multimodal)
+
+export const ISSUE_SCHEMA = {
+  issues: `
+    CREATE TABLE IF NOT EXISTS issues (
+      id TEXT PRIMARY KEY,
+      type TEXT,
+      severity TEXT DEFAULT 'medium',
+      status TEXT DEFAULT 'detected',
+      affected_shipment_id TEXT,
+      affected_dispatch_id TEXT,
+      affected_tender_id TEXT,
+      affected_asset_id TEXT,
+      requires_replanning INTEGER DEFAULT 0,
+      reported_at TEXT DEFAULT (datetime('now')),
+      resolved_at TEXT,
+      data TEXT
+    )`,
+};
+
+// Standard logistics disruption types (DCSA + project44 + industry practice)
+export const ISSUE_TYPES = {
+  // Carrier-side
+  carrier_no_show:       'Carrier won tender/dispatch but did not deliver vehicle',
+  tender_withdrawal:     'Carrier withdrew from accepted tender or dispatch',
+  mechanical_failure:    'Vehicle breakdown en route or at pickup',
+  driver_unavailable:    'Driver unavailable: illness, HOS violation, documents expired',
+  capacity_shortage:     'Carrier cannot provide required vehicle capacity',
+
+  // Cargo-side
+  cargo_not_ready:       'Vehicle arrived but cargo not prepared for loading',
+  cargo_damage:          'Cargo damaged at loading, in transit, or at delivery',
+  cargo_shortage:        'Partial load — cargo quantity less than expected',
+  overweight:            'Cargo exceeds vehicle capacity or legal weight limits',
+  hazmat_violation:      'Dangerous goods issue: wrong classification, missing documents',
+
+  // Delay types (IATA-inspired, adapted for all modes)
+  delay_traffic:         'Traffic congestion on route',
+  delay_weather:         'Weather conditions: snow, flood, storm',
+  delay_driver_hours:    'Driver reached legal driving hours limit (tacho)',
+  delay_border:          'Border crossing delay: queue, inspection',
+  delay_customs:         'Customs clearance delay',
+  delay_ramp:            'Loading/unloading ramp unavailable or occupied',
+  delay_recipient:       'Consignee unavailable at delivery point',
+
+  // Administrative
+  document_error:        'Wrong, missing, or expired transport documents',
+  address_error:         'Incorrect pickup or delivery address',
+  system_outage:         'TMS, GPS tracker, or critical system unavailable',
+
+  // Force majeure
+  force_majeure:         'Natural disaster, strike, road closure, war zone',
+  border_closure:        'Border crossing point closed',
+};
+
+export const ISSUE_SEVERITY = ['low', 'medium', 'high', 'critical'];
+
+// Status flow: detected → acknowledged → in_resolution → resolved | escalated
+export const ISSUE_STATUS = ['detected', 'acknowledged', 'in_resolution', 'resolved', 'escalated', 'cancelled'];
+
+// Issues that always require replanning (others are informational)
+export const REPLANNING_TRIGGERS = new Set([
+  'carrier_no_show', 'tender_withdrawal', 'mechanical_failure',
+  'capacity_shortage', 'cargo_not_ready', 'force_majeure', 'border_closure',
+]);

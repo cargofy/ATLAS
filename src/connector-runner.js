@@ -56,9 +56,10 @@ export class ConnectorRunner {
     this.timers.push(setInterval(() => this._runConnector(connector), intervalMs));
   }
 
-  async _runConnector(connector) {
+  async _runConnector(connector, attempt = 1) {
+    const maxAttempts = connector.sync?.max_retries ?? 3;
     const start = Date.now();
-    console.error(`[ATLAS] Connector "${connector.id}" sync started`);
+    console.error(`[ATLAS] Connector "${connector.id}" sync started (attempt ${attempt}/${maxAttempts})`);
     let count = 0;
     let error = null;
     try {
@@ -73,14 +74,30 @@ export class ConnectorRunner {
       console.error(`[ATLAS] Connector "${connector.id}": synced ${count} records in ${ms}ms`);
     } catch (e) {
       error = e.message;
-      console.error(`[ATLAS] Connector "${connector.id}" error: ${e.message}`);
+      console.error(`[ATLAS] Connector "${connector.id}" error (attempt ${attempt}): ${e.message}`);
+
+      // Retry with exponential backoff
+      if (attempt < maxAttempts) {
+        const delayMs = Math.min(1000 * Math.pow(2, attempt), 30_000); // 2s, 4s, 8s... max 30s
+        console.error(`[ATLAS] Connector "${connector.id}" retrying in ${delayMs}ms...`);
+        await new Promise(r => setTimeout(r, delayMs));
+        return this._runConnector(connector, attempt + 1);
+      }
     }
-    // Always write state (even on error, to track runs)
+    // Write state after final attempt
     this.atlas.setConnectorState(connector.id, {
       last_synced_at: new Date().toISOString(),
       last_count: count,
       last_error: error,
     });
+
+    // Alert if connector has been failing for max_gap_minutes
+    const maxGap = connector.sync?.max_gap_minutes;
+    if (maxGap && error) {
+      const state = this.atlas.getConnectorState(connector.id);
+      // Future: emit webhook/notification here
+      console.error(`[ATLAS] ⚠️  Connector "${connector.id}" DEGRADED after ${attempt} attempts`);
+    }
   }
 
   async _syncRestApi(connector) {
@@ -169,11 +186,37 @@ export class ConnectorRunner {
   }
 
   _upsertRows(connector, entity, rows) {
-    const mapping = connector.mapping ?? null;
-    let synced    = 0;
+    const mapping   = connector.mapping ?? null;
+    const composite = connector.composite ?? null; // {entity: mapping} for multiple entities
+    let synced      = 0;
 
     for (const raw of rows) {
       try {
+        // Composite mapping: one raw row → multiple entities
+        // config: composite: { shipments: {...mapping}, tracking_events: {array_field: "$.scans", mapping: {...}} }
+        if (composite) {
+          for (const [targetEntity, spec] of Object.entries(composite)) {
+            if (spec.array_field) {
+              // Extract nested array (e.g. scans from shipment response)
+              const getPath = (obj, path) => path.replace(/^\$\./, '').split('.').reduce((o, k) => o?.[k], obj);
+              const nested = getPath(raw, spec.array_field);
+              if (Array.isArray(nested)) {
+                for (const item of nested) {
+                  const record = spec.mapping ? applyMapping(item, spec.mapping) : item;
+                  const { valid } = validateMapped(targetEntity, record);
+                  if (valid) { this._upsert(targetEntity, record); synced++; }
+                }
+              }
+            } else {
+              const record = spec.mapping ? applyMapping(raw, spec.mapping) : raw;
+              const { valid } = validateMapped(targetEntity, record);
+              if (valid) { this._upsert(targetEntity, record); synced++; }
+            }
+          }
+          continue; // skip single-entity path below
+        }
+
+        // Single entity mapping (original behavior)
         const record = mapping ? applyMapping(raw, mapping) : raw;
         const { valid, errors } = validateMapped(entity, record);
         if (!valid) {
