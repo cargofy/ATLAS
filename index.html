@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ATLAS — MCP Server for Logistics</title>
+  <meta name="description" content="Open-source MCP server that gives AI agents deep context about your logistics operations. Your data never leaves your infrastructure." />
+  <meta property="og:title" content="ATLAS — MCP Server for Logistics" />
+  <meta property="og:description" content="Open-source MCP server for logistics. Self-hosted. Data stays with you." />
+  <meta property="og:url" content="https://atlasmcp.org" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0f;
+      --bg2: #111118;
+      --border: #1e1e2e;
+      --text: #e8e8f0;
+      --muted: #6b6b8a;
+      --accent: #4f8ef7;
+      --accent2: #7c3aed;
+      --green: #22c55e;
+      --yellow: #eab308;
+      --mono: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Nav ── */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 2rem;
+      background: rgba(10,10,15,0.85);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-logo {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .nav-logo span { color: var(--accent); }
+
+    .nav-links {
+      display: flex;
+      gap: 1.5rem;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      transition: color 0.15s;
+    }
+
+    .nav-links a:hover { color: var(--text); }
+
+    .nav-cta {
+      background: var(--accent);
+      color: #fff !important;
+      padding: 0.4rem 1rem;
+      border-radius: 6px;
+      font-weight: 500;
+    }
+
+    .nav-cta:hover { background: #3a7de8 !important; color: #fff; }
+
+    /* ── Hero ── */
+    .hero {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 6rem 2rem 4rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero::before {
+      content: '';
+      position: absolute;
+      top: 20%;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(79,142,247,0.08) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: rgba(79,142,247,0.1);
+      border: 1px solid rgba(79,142,247,0.25);
+      color: var(--accent);
+      font-size: 0.8rem;
+      font-weight: 500;
+      padding: 0.3rem 0.8rem;
+      border-radius: 100px;
+      margin-bottom: 1.5rem;
+      letter-spacing: 0.04em;
+    }
+
+    .hero h1 {
+      font-size: clamp(2.5rem, 6vw, 4.5rem);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+      margin-bottom: 1.25rem;
+      max-width: 800px;
+    }
+
+    .hero h1 em {
+      font-style: normal;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero p {
+      font-size: 1.2rem;
+      color: var(--muted);
+      max-width: 560px;
+      margin-bottom: 2.5rem;
+      line-height: 1.7;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-bottom: 3rem;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      text-decoration: none;
+      transition: all 0.15s;
+      cursor: pointer;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover { background: #3a7de8; transform: translateY(-1px); }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover { border-color: var(--muted); background: var(--bg2); }
+
+    /* ── Terminal block ── */
+    .terminal {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      max-width: 580px;
+      width: 100%;
+      text-align: left;
+      margin: 0 auto;
+    }
+
+    .terminal-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.65rem 1rem;
+      background: #16161f;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .dot-red { background: #ff5f57; }
+    .dot-yellow { background: #ffbd2e; }
+    .dot-green { background: #28ca41; }
+
+    .terminal-body {
+      padding: 1.25rem 1.5rem;
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      line-height: 1.8;
+    }
+
+    .cmd { color: var(--accent); }
+    .comment { color: var(--muted); }
+    .out { color: var(--green); }
+
+    /* ── Section ── */
+    section {
+      padding: 5rem 2rem;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .section-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+    }
+
+    section h2 {
+      font-size: clamp(1.8rem, 3.5vw, 2.6rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 1rem;
+    }
+
+    section > p {
+      color: var(--muted);
+      font-size: 1.05rem;
+      max-width: 560px;
+      margin-bottom: 3rem;
+      line-height: 1.7;
+    }
+
+    /* ── Problem/solution ── */
+    .ps-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 700px) { .ps-grid { grid-template-columns: 1fr; } }
+
+    .ps-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.75rem;
+    }
+
+    .ps-card h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .ps-card p {
+      color: var(--muted);
+      font-size: 0.95rem;
+      line-height: 1.65;
+    }
+
+    /* ── How it works ── */
+    .arch {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      line-height: 2;
+      color: var(--muted);
+      margin-bottom: 3rem;
+      overflow-x: auto;
+    }
+
+    .arch .hl { color: var(--accent); }
+    .arch .g { color: var(--green); }
+
+    /* ── Tools grid ── */
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1rem;
+    }
+
+    .tool-card {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+    }
+
+    .tool-icon {
+      width: 36px;
+      height: 36px;
+      background: rgba(79,142,247,0.12);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      flex-shrink: 0;
+    }
+
+    .tool-card h4 {
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin-bottom: 0.3rem;
+      font-family: var(--mono);
+      color: var(--accent);
+    }
+
+    .tool-card p {
+      font-size: 0.85rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    /* ── Models ── */
+    .models-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 0.75rem;
+    }
+
+    .model-pill {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .model-pill span { color: var(--green); }
+
+    /* ── Connectors ── */
+    .connectors-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+
+    .connectors-table th {
+      text-align: left;
+      padding: 0.6rem 1rem;
+      color: var(--muted);
+      font-weight: 500;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .connectors-table td {
+      padding: 0.8rem 1rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .connectors-table tr:last-child td { border-bottom: none; }
+    .connectors-table tbody tr:hover { background: var(--bg2); }
+
+    .tag {
+      display: inline-block;
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 0.2rem 0.55rem;
+      border-radius: 4px;
+      letter-spacing: 0.04em;
+    }
+
+    .tag-green { background: rgba(34,197,94,0.15); color: var(--green); }
+    .tag-yellow { background: rgba(234,179,8,0.15); color: var(--yellow); }
+
+    /* ── CTA ── */
+    .cta-section {
+      text-align: center;
+      padding: 5rem 2rem;
+      max-width: 700px;
+      margin: 0 auto;
+    }
+
+    .cta-section h2 {
+      font-size: clamp(2rem, 4vw, 3rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 1rem;
+    }
+
+    .cta-section p {
+      color: var(--muted);
+      font-size: 1.05rem;
+      margin-bottom: 2rem;
+    }
+
+    /* ── Footer ── */
+    footer {
+      border-top: 1px solid var(--border);
+      padding: 2rem;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
+
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--text); }
+
+    /* ── Divider ── */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav>
+  <a class="nav-logo" href="/">ATLAS<span>MCP</span></a>
+  <ul class="nav-links">
+    <li><a href="#how-it-works">How it works</a></li>
+    <li><a href="#tools">MCP Tools</a></li>
+    <li><a href="#models">Data Models</a></li>
+    <li><a href="https://github.com/cargofy/ATLAS" target="_blank" rel="noopener">Docs</a></li>
+    <li><a href="https://github.com/cargofy/ATLAS" target="_blank" rel="noopener" class="nav-cta">GitHub →</a></li>
+  </ul>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="badge">⚡ Apache 2.0 · MCP Compatible · Self-hosted</div>
+  <h1>The <em>MCP server</em> for logistics AI</h1>
+  <p>Give AI agents deep context about your shipments, carriers, and rates — without your data ever leaving your infrastructure.</p>
+  <div class="hero-actions">
+    <a href="https://github.com/cargofy/ATLAS" target="_blank" rel="noopener" class="btn btn-primary">
+      ★ Star on GitHub
+    </a>
+    <a href="#how-it-works" class="btn btn-secondary">See how it works</a>
+  </div>
+  <div class="terminal">
+    <div class="terminal-bar">
+      <div class="dot dot-red"></div>
+      <div class="dot dot-yellow"></div>
+      <div class="dot dot-green"></div>
+    </div>
+    <div class="terminal-body">
+      <div><span class="comment"># Run ATLAS inside your infrastructure</span></div>
+      <div><span class="cmd">$</span> docker run -d \</div>
+      <div>&nbsp;&nbsp;-v ./config.yml:/app/config.yml \</div>
+      <div>&nbsp;&nbsp;cargofy/atlas:latest</div>
+      <div>&nbsp;</div>
+      <div><span class="comment"># Your AI agent connects via MCP</span></div>
+      <div><span class="cmd">$</span> <span class="out">✓ ATLAS MCP server running</span></div>
+      <div><span class="out">✓ 5 tools available</span></div>
+      <div><span class="out">✓ 6 logistics data models loaded</span></div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- Problem / Solution -->
+<section id="why">
+  <div class="section-label">Why ATLAS</div>
+  <h2>Enterprise logistics won't share their data. They're right.</h2>
+  <p>Carrier relationships, pricing history, client contracts — that's competitive advantage. No compliance team signs off on sending it to a SaaS vendor.</p>
+  <div class="ps-grid">
+    <div class="ps-card">
+      <h3>❌ Without ATLAS</h3>
+      <p>AI agents start every conversation from zero. No carrier history. No rate context. No operational memory. Your sales team builds trust manually, conversation by conversation.</p>
+    </div>
+    <div class="ps-card">
+      <h3>✅ With ATLAS</h3>
+      <p>ATLAS runs inside your security perimeter. Indexes your emails, TMS, contracts locally. AI agents query your own data through a standard protocol. Nothing leaves your network.</p>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- How it works -->
+<section id="how-it-works">
+  <div class="section-label">Architecture</div>
+  <h2>Your data. Your infrastructure. Standard protocol.</h2>
+  <p>ATLAS sits between your operational data and AI agents. It indexes locally, answers queries, and exposes a clean MCP interface.</p>
+  <div class="arch">
+<span class="hl">[Your Infrastructure]</span>                    <span class="hl">[AI Agent]</span><br>
+  ├── Email / TMS / ERP<br>
+  ├── Contracts &amp; Documents    &lt;──── MCP Protocol ────&gt;   Claude / GPT / Custom<br>
+  ├── Rate sheets<br>
+  └── <span class="g">ATLAS instance</span><br>
+       ├── Ingestion (connectors)<br>
+       ├── Processing (entity extraction)<br>
+       ├── Storage (SQLite / Postgres, local)<br>
+       └── <span class="g">MCP Server (5 tools)</span>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- MCP Tools -->
+<section id="tools">
+  <div class="section-label">MCP Interface</div>
+  <h2>5 tools. Every logistics context your agent needs.</h2>
+  <p>Connect any MCP-compatible agent — Claude, GPT, or your own — and query your logistics data in natural language.</p>
+  <div class="tools-grid">
+    <div class="tool-card">
+      <div class="tool-icon">🔍</div>
+      <div>
+        <h4>query</h4>
+        <p>Natural language search across all logistics data — shipments, carriers, routes.</p>
+      </div>
+    </div>
+    <div class="tool-card">
+      <div class="tool-icon">📦</div>
+      <div>
+        <h4>get_shipment</h4>
+        <p>Full details for any shipment by ID — status, cargo, carrier, events.</p>
+      </div>
+    </div>
+    <div class="tool-card">
+      <div class="tool-icon">🚚</div>
+      <div>
+        <h4>search_carriers</h4>
+        <p>Filter carriers by country, type, or minimum rating from your own network.</p>
+      </div>
+    </div>
+    <div class="tool-card">
+      <div class="tool-icon">💰</div>
+      <div>
+        <h4>get_rate_history</h4>
+        <p>Historical freight rates for any lane — negotiate from a position of knowledge.</p>
+      </div>
+    </div>
+    <div class="tool-card">
+      <div class="tool-icon">📄</div>
+      <div>
+        <h4>list_documents</h4>
+        <p>Find BOLs, CMRs, invoices, customs declarations by shipment or type.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- Data Models -->
+<section id="models">
+  <div class="section-label">Data Models</div>
+  <h2>Logistics-native schemas. All transport modes.</h2>
+  <p>Six open JSON Schema models covering the full logistics stack — road, ocean, air, rail, multimodal.</p>
+  <div class="models-grid">
+    <div class="model-pill"><span>✓</span> Shipment</div>
+    <div class="model-pill"><span>✓</span> Carrier</div>
+    <div class="model-pill"><span>✓</span> Route</div>
+    <div class="model-pill"><span>✓</span> Document</div>
+    <div class="model-pill"><span>✓</span> Rate</div>
+    <div class="model-pill"><span>✓</span> Event</div>
+  </div>
+</section>
+
+<div class="divider"></div>
+
+<!-- Connectors -->
+<section id="connectors">
+  <div class="section-label">Connectors</div>
+  <h2>Connect your existing systems.</h2>
+  <p>ATLAS ingests from wherever your data lives — no migration required.</p>
+  <table class="connectors-table">
+    <thead>
+      <tr>
+        <th>Connector</th>
+        <th>Status</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Filesystem (JSON, CSV, PDF)</td>
+        <td><span class="tag tag-green">v0.1</span></td>
+        <td>Local contracts, BOLs, rate sheets</td>
+      </tr>
+      <tr>
+        <td>REST API</td>
+        <td><span class="tag tag-green">v0.1</span></td>
+        <td>Connect any TMS or ERP via API</td>
+      </tr>
+      <tr>
+        <td>Email (IMAP/Exchange)</td>
+        <td><span class="tag tag-yellow">v0.2</span></td>
+        <td>Index logistics emails, extract rate quotes</td>
+      </tr>
+      <tr>
+        <td>SAP TM</td>
+        <td><span class="tag tag-yellow">v0.3</span></td>
+        <td>Native SAP Transportation Management</td>
+      </tr>
+      <tr>
+        <td>Transporeon</td>
+        <td><span class="tag tag-yellow">v0.3</span></td>
+        <td>Tender management and carrier portal</td>
+      </tr>
+      <tr>
+        <td>project44</td>
+        <td><span class="tag tag-yellow">v0.3</span></td>
+        <td>Real-time multimodal visibility</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<div class="divider"></div>
+
+<!-- CTA -->
+<div class="cta-section">
+  <h2>Open standard. Built for the industry.</h2>
+  <p>Apache 2.0. Self-hosted. Contributions welcome. Built by Cargofy, open for every logistics company.</p>
+  <div class="hero-actions">
+    <a href="https://github.com/cargofy/ATLAS" target="_blank" rel="noopener" class="btn btn-primary">
+      ★ Star on GitHub
+    </a>
+    <a href="https://github.com/cargofy/ATLAS/blob/main/README.md" target="_blank" rel="noopener" class="btn btn-secondary">
+      Read the docs →
+    </a>
+  </div>
+</div>
+
+<!-- Footer -->
+<footer>
+  <p>
+    Built by <a href="https://cargofy.com" target="_blank" rel="noopener">Cargofy</a> ·
+    <a href="https://github.com/cargofy/ATLAS" target="_blank" rel="noopener">GitHub</a> ·
+    Apache 2.0 License
+  </p>
+</footer>
+
+</body>
+</html>
