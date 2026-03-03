@@ -449,3 +449,81 @@ export const LISTING_STATUS = [
 
 // FreightOffer status flow
 export const OFFER_STATUS = ['draft', 'submitted', 'accepted', 'rejected', 'expired', 'withdrawn'];
+
+// ─── Workflow-support models ─────────────────────────────────────────────────
+// These models exist to give Cargofy agents enough context to run workflows
+// without guessing. ATLAS holds data; Cargofy holds actions.
+
+export const WORKFLOW_SCHEMA = {
+
+  // Review — post-delivery rating between shipper and carrier
+  // Bidirectional: shipper rates carrier AND carrier rates shipper
+  // Aggregated into Carrier.rating automatically
+  reviews: `
+    CREATE TABLE IF NOT EXISTS reviews (
+      id TEXT PRIMARY KEY,
+      shipment_id TEXT,
+      reviewer_party_id TEXT,
+      reviewed_party_id TEXT,
+      rating REAL,
+      on_time INTEGER,
+      communication INTEGER,
+      documentation INTEGER,
+      comment TEXT,
+      created_at TEXT,
+      data TEXT
+    )`,
+
+  // MarketSignal — lane-level pricing intelligence
+  // Built from Rate history + LoadListing activity per lane
+  // Refreshed by connector or computed job
+  market_signals: `
+    CREATE TABLE IF NOT EXISTS market_signals (
+      id TEXT PRIMARY KEY,
+      origin_country TEXT,
+      destination_country TEXT,
+      mode TEXT,
+      period TEXT,
+      listing_count INTEGER,
+      quote_count INTEGER,
+      median_rate REAL,
+      min_rate REAL,
+      max_rate REAL,
+      activity_index REAL,
+      recommended_rate_low REAL,
+      recommended_rate_high REAL,
+      computed_at TEXT,
+      data TEXT
+    )`,
+
+  // Claim — formal exception requiring compensation or investigation
+  claims: `
+    CREATE TABLE IF NOT EXISTS claims (
+      id TEXT PRIMARY KEY,
+      shipment_id TEXT,
+      type TEXT,
+      against_party_id TEXT,
+      amount REAL,
+      currency TEXT,
+      status TEXT,
+      filed_at TEXT,
+      resolved_at TEXT,
+      data TEXT
+    )`,
+};
+
+// Claim types
+export const CLAIM_TYPES = [
+  'delay',          // late delivery beyond agreed SLA
+  'cargo_damage',   // goods damaged in transit
+  'cargo_loss',     // partial or full cargo missing
+  'overcharge',     // billed more than agreed rate
+  'document_error', // incorrect documentation causing delays
+  'other',
+];
+
+// Claim status flow
+export const CLAIM_STATUS = ['draft', 'filed', 'under_review', 'accepted', 'rejected', 'resolved', 'escalated'];
+
+// Document signature status
+export const DOCUMENT_SIGNATURE_STATUS = ['draft', 'sent', 'partially_signed', 'fully_signed', 'rejected', 'expired'];
