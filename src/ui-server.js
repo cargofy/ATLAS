@@ -332,6 +332,150 @@ const httpServer = createServer(async (req, res) => {
     return;
   }
 
+  // ── Import endpoints (UI file upload + seed) ────────────────────────────────
+
+  if (path === '/api/import/seed' && req.method === 'POST') {
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', async () => {
+      try {
+        const { entity } = JSON.parse(body);
+        const { ConnectorRunner } = await import('./connector-runner.js');
+        const runner = new ConnectorRunner(atlas, atlas.config ?? {});
+        const { readdirSync, statSync } = await import('fs');
+        const { join } = await import('path');
+
+        const { resolve: resolvePath } = await import('path');
+        const seedDir = resolvePath(process.cwd(), 'seed');
+
+        function walkSeed(dir) {
+          const files = [];
+          try {
+            for (const f of readdirSync(dir)) {
+              const full = join(dir, f);
+              if (statSync(full).isDirectory()) files.push(...walkSeed(full));
+              else if (/\.(json|csv|xlsx?|md)$/i.test(f)) files.push({ path: full, name: f });
+            }
+          } catch {}
+          return files;
+        }
+
+        const allFiles = walkSeed(seedDir);
+        let total = 0; const entities = new Set();
+
+        if (entity === 'all') {
+          for (const f of allFiles) {
+            const ent = f.name.replace(/[-_]\d+/g,'').replace(/\.[^.]+$/,'');
+            if (ent === 'README') continue;
+            const rows = await runner._parseFile(f.path);
+            if (rows.length) { const n = runner._upsertRows({ id:'seed', mapping:null }, ent, rows) ?? rows.length; total += n; entities.add(ent); }
+          }
+          res.writeHead(200, {'Content-Type':'application/json'});
+          res.end(JSON.stringify({ ok:true, imported:total, entities:entities.size }));
+        } else {
+          const match = allFiles.find(f => f.name.replace(/\.[^.]+$/,'') === entity);
+          if (!match) { res.writeHead(404, {'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:false, error:'Seed file not found: ' + entity })); return; }
+          const rows = await runner._parseFile(match.path);
+          const imported = runner._upsertRows({ id:'seed', mapping:null }, entity, rows) ?? rows.length;
+          res.writeHead(200, {'Content-Type':'application/json'});
+          res.end(JSON.stringify({ ok:true, imported, entity }));
+        }
+      } catch(e) {
+        res.writeHead(500, {'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok:false, error:e.message }));
+      }
+    });
+    return;
+  }
+
+  if (path === '/api/import/folder' && req.method === 'POST') {
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', async () => {
+      try {
+        const { path: folderPath } = JSON.parse(body);
+        const { ConnectorRunner } = await import('./connector-runner.js');
+        const { readdirSync, statSync, existsSync } = await import('fs');
+        const { join, resolve } = await import('path');
+        const absPath = resolve(folderPath);
+        if (!existsSync(absPath)) { res.writeHead(400, {'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:false, error:'Path not found: ' + absPath })); return; }
+        const runner = new ConnectorRunner(atlas, atlas.config ?? {});
+
+        function walkDir(dir) {
+          const files = [];
+          for (const f of readdirSync(dir)) {
+            const full = join(dir, f);
+            if (statSync(full).isDirectory()) files.push(...walkDir(full));
+            else if (/\.(json|csv|xlsx?|md)$/i.test(f)) files.push({ path:full, name:f });
+          }
+          return files;
+        }
+
+        const files = walkDir(absPath);
+        const results = []; let total = 0;
+        for (const f of files) {
+          const entity = f.name.replace(/[-_]\d+/g,'').replace(/\.[^.]+$/,'');
+          if (entity === 'README') { continue; }
+          try {
+            const rows = await runner._parseFile(f.path);
+            runner._upsertRows({ id:'folder-import', mapping:null }, entity, rows);
+            results.push({ file:f.name, entity, imported:rows.length, ok:true });
+            total += rows.length;
+          } catch(e) {
+            results.push({ file:f.name, entity, error:e.message, ok:false });
+          }
+        }
+        res.writeHead(200, {'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok:true, total, results }));
+      } catch(e) {
+        res.writeHead(500, {'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok:false, error:e.message }));
+      }
+    });
+    return;
+  }
+
+  if (path === '/api/import/file' && req.method === 'POST') {
+    // Multipart file upload — parse boundary manually (lightweight)
+    const contentType = req.headers['content-type'] ?? '';
+    const boundary = contentType.split('boundary=')[1];
+    if (!boundary) { res.writeHead(400, {'Content-Type':'application/json'}); res.end(JSON.stringify({ ok:false, error:'Missing boundary' })); return; }
+    const chunks = [];
+    req.on('data', d => chunks.push(d));
+    req.on('end', async () => {
+      try {
+        const buf = Buffer.concat(chunks).toString('latin1');
+        // Extract filename
+        const nameMatch = buf.match(/filename="([^"]+)"/);
+        const filename = nameMatch ? nameMatch[1] : 'upload.json';
+        // Extract entity field
+        const entityMatch = buf.match(/name="entity"[\r\n]{4}([^\r\n]+)/);
+        const entity = entityMatch ? entityMatch[1] : filename.replace(/[-_]\d+/g,'').replace(/\.[^.]+$/,'');
+        // Extract file content between boundary markers
+        const fileStart = buf.indexOf('\r\n\r\n', buf.indexOf('filename=')) + 4;
+        const fileEnd   = buf.lastIndexOf('\r\n--' + boundary);
+        const fileContent = buf.slice(fileStart, fileEnd);
+
+        const { writeFileSync, unlinkSync } = await import('fs');
+        const tmpPath = `/tmp/atlas-upload-${Date.now()}-${filename}`;
+        writeFileSync(tmpPath, Buffer.from(fileContent, 'latin1'));
+
+        const { ConnectorRunner } = await import('./connector-runner.js');
+        const runner = new ConnectorRunner(atlas, atlas.config ?? {});
+        const rows = await runner._parseFile(tmpPath);
+        runner._upsertRows({ id:'file-upload', mapping:null }, entity, rows);
+        unlinkSync(tmpPath);
+
+        res.writeHead(200, {'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok:true, imported:rows.length, entity }));
+      } catch(e) {
+        res.writeHead(500, {'Content-Type':'application/json'});
+        res.end(JSON.stringify({ ok:false, error:e.message }));
+      }
+    });
+    return;
+  }
+
   // ── Admin endpoints (ATLAS-08, ATLAS-09) ─────────────────────────────────────
 
   if (path === "/api/admin/reload" && req.method === "POST") {

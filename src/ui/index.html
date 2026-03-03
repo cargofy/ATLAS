@@ -179,6 +179,9 @@
       <div class="nav-item" onclick="showPage('playground')">
         <span class="nav-icon">▷</span> Playground
       </div>
+      <div class="nav-item" onclick="showPage('import')">
+        <span class="nav-icon">⬆</span> Import Data
+      </div>
     </nav>
     <div class="status-dot" id="sidebar-dot" title="Running"></div>
   </aside>
@@ -244,6 +247,136 @@
     </div>
 
     <!-- Playground -->
+    <div class="page" id="page-import">
+      <div class="page-header">
+        <div class="page-title">Import Data</div>
+        <div class="page-sub">Upload files or load seed examples into ATLAS</div>
+      </div>
+
+      <!-- Tabs: Upload / Seed Examples -->
+      <div class="tabs" style="max-width:600px">
+        <div class="tab active" id="import-tab-upload" onclick="switchImportTab('upload')">📁 Upload Files</div>
+        <div class="tab" id="import-tab-seed" onclick="switchImportTab('seed')">🌱 Seed Examples</div>
+        <div class="tab" id="import-tab-folder" onclick="switchImportTab('folder')">📂 Folder Path</div>
+      </div>
+
+      <!-- Upload tab -->
+      <div id="import-panel-upload">
+        <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()"
+             ondragover="event.preventDefault();this.classList.add('dragover')"
+             ondragleave="this.classList.remove('dragover')"
+             ondrop="handleDrop(event)">
+          <div class="drop-zone-icon">⬆️</div>
+          <div class="drop-zone-text">Drop files here or click to browse</div>
+          <div class="drop-zone-hint">JSON · CSV · XLSX · Markdown with YAML front matter</div>
+          <input type="file" id="fileInput" style="display:none" multiple
+                 accept=".json,.csv,.xlsx,.xls,.md"
+                 onchange="handleFiles(this.files)">
+        </div>
+        <div id="uploadPreview" style="display:none" class="import-preview">
+          <div class="import-preview-header">
+            <span class="import-preview-title" id="previewTitle">File preview</span>
+            <span class="import-preview-meta" id="previewMeta"></span>
+          </div>
+          <div class="import-preview-body" id="previewBody"></div>
+        </div>
+        <div style="margin-top:1rem">
+          <div style="font-size:0.8rem;color:var(--muted);margin-bottom:0.5rem">Target entity (auto-detected from filename):</div>
+          <div class="entity-select" id="entitySelect">
+            <span class="entity-chip selected" id="chip-auto" onclick="selectEntity('auto')">auto-detect</span>
+            <span class="entity-chip" onclick="selectEntity('shipments')">shipments</span>
+            <span class="entity-chip" onclick="selectEntity('carriers')">carriers</span>
+            <span class="entity-chip" onclick="selectEntity('lanes')">lanes</span>
+            <span class="entity-chip" onclick="selectEntity('rates')">rates</span>
+            <span class="entity-chip" onclick="selectEntity('tracking_events')">tracking_events</span>
+            <span class="entity-chip" onclick="selectEntity('parties')">parties</span>
+            <span class="entity-chip" onclick="selectEntity('documents')">documents</span>
+            <span class="entity-chip" onclick="selectEntity('service_levels')">service_levels</span>
+            <span class="entity-chip" onclick="selectEntity('tenders')">tenders</span>
+            <span class="entity-chip" onclick="selectEntity('assets')">assets</span>
+            <span class="entity-chip" onclick="selectEntity('issues')">issues</span>
+          </div>
+        </div>
+        <button class="btn btn-primary" id="importBtn" onclick="doImport()" disabled style="margin-top:1rem">
+          Import Records
+        </button>
+        <div id="importLog" class="import-log" style="display:none"></div>
+      </div>
+
+      <!-- Seed Examples tab -->
+      <div id="import-panel-seed" style="display:none">
+        <p style="color:var(--body);font-size:0.9rem;margin-bottom:1rem">
+          Load realistic logistics demo data into ATLAS. Useful for testing and demos.
+        </p>
+        <div class="seed-examples">
+          <div class="seed-card" onclick="loadSeedExample('shipments')">
+            <div class="seed-card-icon">📦</div>
+            <div class="seed-card-name">Shipments</div>
+            <div class="seed-card-desc">3 shipments: in_transit, delivered, exception</div>
+          </div>
+          <div class="seed-card" onclick="loadSeedExample('carriers')">
+            <div class="seed-card-icon">🚚</div>
+            <div class="seed-card-name">Carriers</div>
+            <div class="seed-card-desc">3 carriers: road FTL, reefer, ocean FCL</div>
+          </div>
+          <div class="seed-card" onclick="loadSeedExample('rates')">
+            <div class="seed-card-icon">💰</div>
+            <div class="seed-card-name">Rates</div>
+            <div class="seed-card-desc">7 rate entries across lanes</div>
+          </div>
+          <div class="seed-card" onclick="loadSeedExample('lanes')">
+            <div class="seed-card-icon">🗺️</div>
+            <div class="seed-card-name">Lanes</div>
+            <div class="seed-card-desc">PL-DE, UA-PL, DE-NL with transit times</div>
+          </div>
+          <div class="seed-card" onclick="loadSeedExample('parties')">
+            <div class="seed-card-icon">🏢</div>
+            <div class="seed-card-name">Parties</div>
+            <div class="seed-card-desc">Shipper × 2, 3PL/broker</div>
+          </div>
+          <div class="seed-card" onclick="loadSeedExample('tracking_events')">
+            <div class="seed-card-icon">📍</div>
+            <div class="seed-card-name">Tracking Events</div>
+            <div class="seed-card-desc">GPS events + 1 exception</div>
+          </div>
+          <div class="seed-card" onclick="loadSeedExample('service_levels')">
+            <div class="seed-card-icon">⏱️</div>
+            <div class="seed-card-name">Service Levels</div>
+            <div class="seed-card-desc">2 SLA profiles (standard + GDP)</div>
+          </div>
+          <div class="seed-card" onclick="loadSeedExample('documents')">
+            <div class="seed-card-icon">📄</div>
+            <div class="seed-card-name">Documents</div>
+            <div class="seed-card-desc">CMR, POD, invoice examples</div>
+          </div>
+          <div class="seed-card" onclick="loadSeedAll()">
+            <div class="seed-card-icon" style="color:var(--accent)">⬡</div>
+            <div class="seed-card-name" style="color:var(--accent)">Load All</div>
+            <div class="seed-card-desc">34 records across all entities</div>
+          </div>
+        </div>
+        <div id="seedLog" class="import-log" style="display:none;margin-top:1rem"></div>
+      </div>
+
+      <!-- Folder Path tab -->
+      <div id="import-panel-folder" style="display:none">
+        <p style="color:var(--body);font-size:0.9rem;margin-bottom:1rem">
+          Load all files from a folder on the server filesystem.
+        </p>
+        <div style="display:flex;gap:0.75rem;align-items:center">
+          <input id="folderPath" type="text" value="./seed"
+                 style="flex:1;background:var(--bg2);border:1px solid var(--border);border-radius:6px;
+                        padding:0.6rem 0.85rem;color:var(--text);font-family:var(--mono);font-size:0.85rem"
+                 placeholder="./seed or /absolute/path">
+          <button class="btn btn-primary" onclick="doFolderImport()">Run Import</button>
+        </div>
+        <p style="color:var(--muted);font-size:0.78rem;margin-top:0.5rem">
+          Supports JSON, CSV, XLSX, and Markdown (.md) files. Subfolders are walked recursively.
+        </p>
+        <div id="folderLog" class="import-log" style="display:none;margin-top:1rem"></div>
+      </div>
+    </div>
+
     <div class="page" id="page-playground">
       <div class="page-header">
         <div class="page-title">Query Playground</div>
@@ -502,6 +635,127 @@ function syntaxHighlight(json) {
       if (/null/.test(m)) return `<span class="json-null">${m}</span>`;
       return `<span class="json-num">${m}</span>`;
     });
+}
+
+// ── Import Data ──────────────────────────────────────────────────────────────
+
+let importFiles = [];
+let selectedEntity = 'auto';
+
+function switchImportTab(tab) {
+  ['upload','seed','folder'].forEach(t => {
+    document.getElementById('import-panel-' + t).style.display = t === tab ? '' : 'none';
+    document.getElementById('import-tab-' + t).classList.toggle('active', t === tab);
+  });
+}
+
+function selectEntity(name) {
+  selectedEntity = name;
+  document.querySelectorAll('.entity-chip').forEach(c => c.classList.remove('selected'));
+  document.querySelector(`.entity-chip[onclick*="${name}"]`)?.classList.add('selected');
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').classList.remove('dragover');
+  handleFiles(e.dataTransfer.files);
+}
+
+function handleFiles(files) {
+  importFiles = Array.from(files);
+  if (!importFiles.length) return;
+  const f = importFiles[0];
+  document.getElementById('previewTitle').textContent = f.name;
+  document.getElementById('previewMeta').textContent = (f.size/1024).toFixed(1) + ' KB · ' + importFiles.length + ' file(s)';
+  document.getElementById('uploadPreview').style.display = '';
+  document.getElementById('importBtn').disabled = false;
+  // Preview first file
+  const reader = new FileReader();
+  reader.onload = e => {
+    let text = e.target.result;
+    if (text.length > 2000) text = text.slice(0, 2000) + '
+…';
+    document.getElementById('previewBody').textContent = text;
+  };
+  reader.readAsText(f);
+}
+
+async function doImport() {
+  const log = document.getElementById('importLog');
+  log.style.display = ''; log.innerHTML = '';
+  let total = 0;
+  for (const file of importFiles) {
+    const formData = new FormData();
+    formData.append('file', file);
+    const entity = selectedEntity === 'auto'
+      ? file.name.replace(/[-_]\d+/g,'').replace(/\.[^.]+$/,'')
+      : selectedEntity;
+    formData.append('entity', entity);
+    const res = await fetch('/api/import/file', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (data.ok) {
+      log.innerHTML += `<div class="ok">✓ ${file.name} → ${entity}: ${data.imported} records</div>`;
+      total += data.imported;
+    } else {
+      log.innerHTML += `<div class="err">✗ ${file.name}: ${data.error}</div>`;
+    }
+  }
+  if (total > 0) { log.innerHTML += `<div class="ok" style="margin-top:0.5rem;font-weight:600">✓ Total: ${total} records imported</div>`; loadDashboard(); }
+}
+
+async function loadSeedExample(entity) {
+  const log = document.getElementById('seedLog');
+  log.style.display = ''; 
+  log.innerHTML += `<div style="color:var(--muted)">Loading ${entity}…</div>`;
+  const res = await fetch('/api/import/seed', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ entity })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    log.innerHTML += `<div class="ok">✓ ${entity}: ${data.imported} records loaded</div>`;
+    loadDashboard();
+  } else {
+    log.innerHTML += `<div class="err">✗ ${entity}: ${data.error}</div>`;
+  }
+}
+
+async function loadSeedAll() {
+  const log = document.getElementById('seedLog');
+  log.style.display = ''; log.innerHTML = '<div style="color:var(--muted)">Loading all seed data…</div>';
+  const res = await fetch('/api/import/seed', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ entity: 'all' })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    log.innerHTML += `<div class="ok">✓ Loaded ${data.imported} records across ${data.entities} entities</div>`;
+    loadDashboard();
+  } else {
+    log.innerHTML += `<div class="err">✗ ${data.error}</div>`;
+  }
+}
+
+async function doFolderImport() {
+  const path = document.getElementById('folderPath').value.trim();
+  const log = document.getElementById('folderLog');
+  log.style.display = ''; log.innerHTML = `<div style="color:var(--muted)">Scanning ${path}…</div>`;
+  const res = await fetch('/api/import/folder', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ path })
+  });
+  const data = await res.json();
+  if (data.ok) {
+    data.results.forEach(r => {
+      log.innerHTML += r.ok
+        ? `<div class="ok">✓ ${r.file} → ${r.entity}: ${r.imported} records</div>`
+        : `<div class="err">✗ ${r.file}: ${r.error}</div>`;
+    });
+    log.innerHTML += `<div class="ok" style="margin-top:0.5rem;font-weight:600">✓ Total: ${data.total} records from ${data.results.length} files</div>`;
+    loadDashboard();
+  } else {
+    log.innerHTML += `<div class="err">✗ ${data.error}</div>`;
+  }
 }
 
 // ── Init ─────────────────────────────────────────────────────────────────────
