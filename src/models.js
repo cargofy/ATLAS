@@ -299,3 +299,60 @@ export const MODEL_ALIASES = {
   customs:          'customs_entries',
   shipment_legs:    'legs',
 };
+
+// ─── Party & Relationship models ────────────────────────────────────────────
+// Party = any business entity in the supply chain (shipper, 3PL, carrier,
+// consignee, notify_party). Promoted to CORE — present in every use case.
+
+export const PARTY_SCHEMA = {
+  parties: `
+    CREATE TABLE IF NOT EXISTS parties (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      role TEXT,
+      country TEXT,
+      city TEXT,
+      contact_email TEXT,
+      contact_phone TEXT,
+      vat_number TEXT,
+      data TEXT
+    )`,
+
+  // 3PL manages logistics for a client for a defined period
+  managed_relationships: `
+    CREATE TABLE IF NOT EXISTS managed_relationships (
+      id TEXT PRIMARY KEY,
+      client_party_id TEXT,
+      provider_party_id TEXT,
+      scope TEXT,
+      start_date TEXT,
+      end_date TEXT,
+      status TEXT,
+      data TEXT
+    )`,
+};
+
+// Party roles — standard across all transport modes and markets
+export const PARTY_ROLES = [
+  'shipper',          // cargo owner / sender
+  'consignee',        // cargo recipient
+  'notify_party',     // bank, customs agent, insurance
+  'freight_broker',   // spot broker, earns on margin
+  '3pl',              // managed logistics provider
+  'carrier',          // actually moves the goods
+  'customs_agent',    // handles customs clearance
+  'terminal',         // port, rail terminal, cross-dock operator
+];
+
+// Tender types
+export const TENDER_TYPES = {
+  spot:     'One-time shipment quote request',
+  volume:   'Recurring/high-volume procurement (grain, construction)',
+  contract: 'Annual or multi-month rate agreement',
+};
+
+// Tender status flow
+export const TENDER_STATUS = [
+  'draft', 'open', 'collecting_quotes',
+  'awarded', 'partially_awarded', 'active', 'closed', 'cancelled',
+];
