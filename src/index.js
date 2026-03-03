@@ -1,275 +1,309 @@
 /**
- * ATLAS MCP Server — v0.2
- * AI Transport Logistics Agent Standard
+ * ATLAS MCP Server — stdio transport (v1.0)
+ * All tools. Read-only access to logistics data.
  */
 import "dotenv/config";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { Atlas } from "./atlas.js";
+import { ConnectorRunner } from "./connector-runner.js";
 
-// ─── Bootstrap ───────────────────────────────────────────────────────────────
+// ─── Bootstrap ────────────────────────────────────────────────────────────────
 
 const atlas = new Atlas();
 try { atlas.loadConfig(process.env.ATLAS_CONFIG); }
-catch (err) { console.error(`[ATLAS] Config warning: ${err.message}`); }
-try { atlas.initDb(process.env.ATLAS_DB_PATH ?? ":memory:"); }
-catch (err) { console.error(`[ATLAS] DB init error: ${err.message}`); process.exit(1); }
+catch (e) { process.stderr.write(`[ATLAS] Config: ${e.message}\n`); }
+atlas.initDb(process.env.ATLAS_DB_PATH ?? atlas.config?.storage?.path ?? ":memory:");
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+const runner = new ConnectorRunner(atlas, atlas.config);
+runner.start();
 
-const ok = (data) => ({
-  content: [{ type: "text", text: JSON.stringify(data, null, 2) }],
-});
+// ─── MCP Server ───────────────────────────────────────────────────────────────
 
-const err = (code, message) => ({
-  content: [{ type: "text", text: JSON.stringify({ error_code: code, message }) }],
+const server = new McpServer({ name: "atlas", version: "1.0.0" });
+
+const ok  = data  => ({ content: [{ type: "text", text: JSON.stringify(data, null, 2) }] });
+const err = (code, msg) => ({
+  content: [{ type: "text", text: JSON.stringify({ error_code: code, message: msg }) }],
   isError: true,
 });
 
-// ─── MCP Server ──────────────────────────────────────────────────────────────
+// ─── Discovery ────────────────────────────────────────────────────────────────
 
-const server = new McpServer({ name: "atlas", version: "0.2.0" });
+server.tool("get_available_models",
+  "List all enabled ATLAS data models with record counts. Use before querying to know what data is indexed.",
+  {},
+  async () => {
+    try { return ok({ models: atlas.getAvailableModels() }); }
+    catch (e) { return err("INTERNAL_ERROR", e.message); }
+  }
+);
 
-// ──────────────────────────────────────────────────────────────────────────────
-// DISCOVERY TOOLS — "What data do you have?"
-// ──────────────────────────────────────────────────────────────────────────────
+server.tool("get_schema",
+  "Return the schema and description for an ATLAS data model.",
+  { model: z.string().describe("Model name (e.g. shipments, carriers, tenders, tracking_events)") },
+  async ({ model }) => {
+    try {
+      const schema = atlas.getModelSchema(model);
+      if (!schema) return err("MODEL_NOT_FOUND", `Unknown model: "${model}". Call get_available_models() to see what's enabled.`);
+      return ok(schema);
+    } catch (e) { return err("INTERNAL_ERROR", e.message); }
+  }
+);
 
-server.tool(
-  "get_available_carriers",
-  "List all carriers indexed by ATLAS with their IDs, names, countries, and types. Call this first to discover available carrier IDs before querying details.",
+server.tool("get_available_carriers",
+  "List all carriers indexed in ATLAS with id, name, country, type, and rating.",
+  {},
+  async () => {
+    try { const c = atlas.getAvailableCarriers(); return ok({ carriers: c, total: c.length }); }
+    catch (e) { return err("INTERNAL_ERROR", e.message); }
+  }
+);
+
+server.tool("get_available_lanes",
+  "List all indexed origin→destination lanes with available rate data.",
+  {},
+  async () => {
+    try { const l = atlas.getAvailableLanes(); return ok({ lanes: l, total: l.length }); }
+    catch (e) { return err("INTERNAL_ERROR", e.message); }
+  }
+);
+
+server.tool("get_available_document_types",
+  "List document types indexed in ATLAS with counts.",
+  {},
+  async () => {
+    try { return ok({ document_types: atlas.getAvailableDocumentTypes() }); }
+    catch (e) { return err("INTERNAL_ERROR", e.message); }
+  }
+);
+
+server.tool("get_sync_status",
+  "Return data freshness per table: record counts and last sync timestamps. Also shows connector health.",
   {},
   async () => {
     try {
-      const carriers = atlas.getAvailableCarriers();
-      return ok({ carriers, total: carriers.length });
+      return ok({
+        sync_status: atlas.getSyncStatus(),
+        connectors: runner.getStats(),
+        checked_at: new Date().toISOString(),
+      });
     } catch (e) { return err("INTERNAL_ERROR", e.message); }
   }
 );
 
-server.tool(
-  "get_available_lanes",
-  "List all unique origin→destination lanes with rate data indexed in ATLAS. Use to discover available routes before querying rate history.",
-  {},
-  async () => {
-    try {
-      const lanes = atlas.getAvailableLanes();
-      return ok({ lanes, total: lanes.length });
-    } catch (e) { return err("INTERNAL_ERROR", e.message); }
-  }
-);
+// ─── Generic ─────────────────────────────────────────────────────────────────
 
-server.tool(
-  "get_available_document_types",
-  "List all document types indexed in ATLAS with counts. Use to discover what document types exist before filtering.",
-  {},
-  async () => {
-    try {
-      const types = atlas.getAvailableDocumentTypes();
-      return ok({ document_types: types });
-    } catch (e) { return err("INTERNAL_ERROR", e.message); }
-  }
-);
-
-server.tool(
-  "get_sync_status",
-  "Return data freshness for every ATLAS table: record counts and last sync timestamp. Use to check if data is up to date before making decisions.",
-  {},
-  async () => {
-    try {
-      const sync = atlas.getSyncStatus();
-      return ok({ sync_status: sync, checked_at: new Date().toISOString() });
-    } catch (e) { return err("INTERNAL_ERROR", e.message); }
-  }
-);
-
-// ──────────────────────────────────────────────────────────────────────────────
-// SHIPMENT TOOLS
-// ──────────────────────────────────────────────────────────────────────────────
-
-server.tool(
-  "get_shipment",
-  "Retrieve full details for a specific shipment by ID.",
-  { id: z.string().describe("Shipment ID") },
-  async ({ id }) => {
-    try {
-      const shipment = atlas.getShipment(id);
-      if (!shipment) return err("SHIPMENT_NOT_FOUND", `No shipment found with ID: ${id}`);
-      return ok({ shipment });
-    } catch (e) { return err("INTERNAL_ERROR", e.message); }
-  }
-);
-
-server.tool(
-  "get_shipments",
-  "List shipments with optional filters. Returns named envelope with total count and sync timestamp.",
+server.tool("get_records",
+  "Query any enabled ATLAS model by name with optional filters. Use get_available_models() first.",
   {
-    status: z
-      .enum(["pending","in_transit","customs","delivered","exception","cancelled"])
-      .optional()
-      .describe("Filter by shipment status"),
-    mode: z
-      .enum(["road","ocean","air","rail","multimodal"])
-      .optional()
-      .describe("Filter by transport mode"),
-    start_date: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/)
-      .optional()
-      .describe("Created from date (YYYY-MM-DD)"),
-    end_date: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/)
-      .optional()
-      .describe("Created to date (YYYY-MM-DD)"),
-    limit: z.number().int().min(1).max(200).optional().default(20)
-      .describe("Max results (default: 20)"),
+    model:  z.string().describe("Model table name (e.g. tenders, assets, load_listings)"),
+    filters: z.record(z.any()).optional().describe("Field equality filters as {field: value}"),
+    limit:  z.number().int().min(1).max(200).optional().default(50),
   },
-  async ({ status, mode, start_date, end_date, limit }) => {
+  async ({ model, filters, limit }) => {
     try {
-      const result = atlas.listShipments({ status, mode, start_date, end_date, limit });
+      const result = atlas.getRecords(model, filters ?? {}, limit);
+      if (result.error) return err("MODEL_ERROR", result.error);
+      if (!result.records.length) return err("NO_RESULTS", `No records found in ${model}.`);
       return ok(result);
     } catch (e) { return err("INTERNAL_ERROR", e.message); }
   }
 );
 
-server.tool(
-  "get_shipment_events",
-  "Get the event timeline for a specific shipment: scans, status changes, exceptions.",
+server.tool("query",
+  "Natural language search across all indexed logistics data (shipments, carriers, lanes).",
   {
-    shipment_id: z.string().describe("Shipment ID"),
-    exceptions_only: z.boolean().optional().default(false)
-      .describe("Return only exception events"),
-    limit: z.number().int().min(1).max(200).optional().default(50),
+    question: z.string(),
+    limit:    z.number().int().min(1).max(100).optional().default(10),
+  },
+  async ({ question, limit }) => {
+    try {
+      const r = atlas.query(question, { limit });
+      return ok({ query: question, result_count: r.results.length, results: r.results, context: r.context });
+    } catch (e) { return err("INTERNAL_ERROR", e.message); }
+  }
+);
+
+// ─── Shipments ────────────────────────────────────────────────────────────────
+
+server.tool("get_shipment",
+  "Get full details for a single shipment by ID.",
+  { id: z.string() },
+  async ({ id }) => {
+    try {
+      const s = atlas.getShipment(id);
+      return s ? ok({ shipment: s }) : err("SHIPMENT_NOT_FOUND", `No shipment: ${id}`);
+    } catch (e) { return err("INTERNAL_ERROR", e.message); }
+  }
+);
+
+server.tool("get_shipments",
+  "List shipments with optional filters by status, mode, and date range.",
+  {
+    status:     z.enum(["pending","in_transit","customs","delivered","exception","cancelled"]).optional(),
+    mode:       z.enum(["road","ocean","air","rail","multimodal"]).optional(),
+    start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    end_date:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    limit:      z.number().int().min(1).max(200).optional().default(20),
+  },
+  async (args) => {
+    try { return ok(atlas.listShipments(args)); }
+    catch (e) { return err("INTERNAL_ERROR", e.message); }
+  }
+);
+
+server.tool("get_shipment_events",
+  "Get the full tracking event timeline for a shipment.",
+  {
+    shipment_id:    z.string(),
+    exceptions_only: z.boolean().optional().default(false),
+    limit:          z.number().int().min(1).max(200).optional().default(50),
   },
   async ({ shipment_id, exceptions_only, limit }) => {
     try {
-      const shipment = atlas.getShipment(shipment_id);
-      if (!shipment) return err("SHIPMENT_NOT_FOUND", `No shipment found: ${shipment_id}`);
-      const result = atlas.listEvents({ shipment_id, exceptions_only, limit });
-      return ok({ ...result, shipment_id });
+      const s = atlas.getShipment(shipment_id);
+      if (!s) return err("SHIPMENT_NOT_FOUND", `No shipment: ${shipment_id}`);
+      return ok({ ...atlas.listEvents({ shipment_id, exceptions_only, limit }), shipment_id });
     } catch (e) { return err("INTERNAL_ERROR", e.message); }
   }
 );
 
-// ──────────────────────────────────────────────────────────────────────────────
-// CARRIER TOOLS
-// ──────────────────────────────────────────────────────────────────────────────
+server.tool("get_unsigned_documents",
+  "Return documents for a shipment that are still pending signature.",
+  { shipment_id: z.string() },
+  async ({ shipment_id }) => {
+    try { return ok(atlas.getUnsignedDocuments(shipment_id)); }
+    catch (e) { return err("INTERNAL_ERROR", e.message); }
+  }
+);
 
-server.tool(
-  "search_carriers",
-  "Search carriers by country, type, minimum rating, or free-text query. Returns named envelope with total and sync timestamp.",
-  {
-    query: z.string().optional()
-      .describe("Free-text search (name, description, specialization)"),
-    country: z.string().length(2).optional()
-      .describe("ISO 3166-1 alpha-2 country code (e.g. DE, NL, PL)"),
-    type: z.enum(["trucking","shipping_line","airline","rail","broker"]).optional(),
-    min_rating: z.number().min(0).max(5).optional()
-      .describe("Minimum carrier rating (0–5)"),
-    limit: z.number().int().min(1).max(100).optional().default(20),
-  },
-  async ({ query, country, type, min_rating, limit }) => {
+server.tool("get_closure_checklist",
+  "Return a checklist of what's still needed to close (POD, signatures, review) for a shipment.",
+  { shipment_id: z.string() },
+  async ({ shipment_id }) => {
     try {
-      const result = atlas.searchCarriers({ query, country, type, min_rating, limit });
-      if (!result.carriers.length) return err("NO_RESULTS", "No carriers found matching criteria.");
-      return ok(result);
+      const r = atlas.getClosureChecklist(shipment_id);
+      if (r.error) return err("SHIPMENT_NOT_FOUND", r.error);
+      return ok(r);
     } catch (e) { return err("INTERNAL_ERROR", e.message); }
   }
 );
 
-server.tool(
-  "get_carrier_shipments",
-  "Get all shipments handled by a specific carrier. Useful for performance analysis and relationship traversal.",
+// ─── Carriers ─────────────────────────────────────────────────────────────────
+
+server.tool("search_carriers",
+  "Search carriers by country, type, minimum rating, or free text query.",
   {
-    carrier_id: z.string().describe("Carrier ID (use get_available_carriers to discover IDs)"),
-    limit: z.number().int().min(1).max(100).optional().default(20),
+    query:      z.string().optional(),
+    country:    z.string().length(2).optional(),
+    type:       z.enum(["trucking","shipping_line","airline","rail","freight_broker","3pl"]).optional(),
+    min_rating: z.number().min(0).max(5).optional(),
+    limit:      z.number().int().min(1).max(100).optional().default(20),
+  },
+  async (args) => {
+    try {
+      const r = atlas.searchCarriers(args);
+      return r.carriers.length ? ok(r) : err("NO_RESULTS", "No carriers found matching filters.");
+    } catch (e) { return err("INTERNAL_ERROR", e.message); }
+  }
+);
+
+server.tool("get_carrier_shipments",
+  "Get all shipments handled by a specific carrier.",
+  {
+    carrier_id: z.string(),
+    limit:      z.number().int().min(1).max(100).optional().default(20),
   },
   async ({ carrier_id, limit }) => {
     try {
-      const carrier = atlas.getCarrier(carrier_id);
-      if (!carrier) return err("CARRIER_NOT_FOUND", `No carrier found with ID: ${carrier_id}`);
-      const result = atlas.getCarrierShipments(carrier_id, { limit });
-      return ok({ ...result, carrier_name: carrier.name ?? carrier_id });
+      const c = atlas.getCarrier(carrier_id);
+      if (!c) return err("CARRIER_NOT_FOUND", `No carrier: ${carrier_id}`);
+      return ok({ ...atlas.getCarrierShipments(carrier_id, { limit }), carrier_name: c.name ?? carrier_id });
     } catch (e) { return err("INTERNAL_ERROR", e.message); }
   }
 );
 
-// ──────────────────────────────────────────────────────────────────────────────
-// RATE TOOLS
-// ──────────────────────────────────────────────────────────────────────────────
+// ─── Rates ────────────────────────────────────────────────────────────────────
 
-server.tool(
-  "get_rate_history",
-  "Retrieve freight rate history for a lane (origin→destination) with optional carrier and date range filters.",
+server.tool("get_rate_history",
+  "Retrieve freight rate history for a lane or carrier with optional date range.",
   {
-    origin: z.string().length(2).optional()
-      .describe("Origin country code (ISO 3166-1 alpha-2, e.g. PL)"),
-    destination: z.string().length(2).optional()
-      .describe("Destination country code (ISO 3166-1 alpha-2, e.g. DE)"),
-    carrier_id: z.string().optional()
-      .describe("Filter by specific carrier ID"),
-    mode: z.enum(["road","ocean","air","rail","multimodal"]).optional(),
-    start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
-      .describe("Rate valid from (YYYY-MM-DD). Defaults to 90 days ago."),
-    end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional()
-      .describe("Rate valid to (YYYY-MM-DD). Defaults to today."),
-    limit: z.number().int().min(1).max(200).optional().default(50),
+    origin:      z.string().length(2).optional(),
+    destination: z.string().length(2).optional(),
+    carrier_id:  z.string().optional(),
+    mode:        z.enum(["road","ocean","air","rail","multimodal"]).optional(),
+    start_date:  z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    end_date:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    limit:       z.number().int().min(1).max(200).optional().default(50),
   },
-  async ({ origin, destination, carrier_id, mode, start_date, end_date, limit }) => {
+  async (args) => {
     try {
-      if (!origin && !destination && !carrier_id) {
+      if (!args.origin && !args.destination && !args.carrier_id)
         return err("MISSING_PARAMS", "Provide at least one of: origin, destination, carrier_id");
-      }
-      const result = atlas.getRateHistory({ carrier_id, origin, destination, mode, start_date, end_date, limit });
-      if (!result.rates.length) return err("NO_RESULTS", "No rate records found for the specified criteria.");
-      return ok(result);
+      const r = atlas.getRateHistory(args);
+      return r.rates.length ? ok(r) : err("NO_RESULTS", "No rates found for the given filters.");
     } catch (e) { return err("INTERNAL_ERROR", e.message); }
   }
 );
 
-// ──────────────────────────────────────────────────────────────────────────────
-// DOCUMENT TOOLS
-// ──────────────────────────────────────────────────────────────────────────────
+// ─── Documents ────────────────────────────────────────────────────────────────
 
-server.tool(
-  "list_documents",
-  "List logistics documents filtered by shipment ID or document type.",
+server.tool("list_documents",
+  "List logistics documents with optional filters by shipment or document type.",
   {
-    shipment_id: z.string().optional()
-      .describe("Filter by shipment ID"),
-    type: z.enum([
-      "bol","cmr","awb","invoice","customs_export","customs_import",
-      "pod","packing_list","certificate_of_origin","dangerous_goods","other",
-    ]).optional(),
+    shipment_id: z.string().optional(),
+    type:        z.enum(["bol","cmr","awb","invoice","customs_export","customs_import","pod","packing_list","certificate_of_origin","dangerous_goods","other"]).optional(),
+    limit:       z.number().int().min(1).max(200).optional().default(50),
+  },
+  async (args) => {
+    try {
+      const r = atlas.listDocuments(args);
+      return r.documents.length ? ok(r) : err("NO_RESULTS", "No documents found.");
+    } catch (e) { return err("INTERNAL_ERROR", e.message); }
+  }
+);
+
+// ─── SLA & Operations ─────────────────────────────────────────────────────────
+
+server.tool("get_sla_violations",
+  "Return shipments that have exceeded their ServiceLevel planned transit time. Core tool for exception management.",
+  {
+    since:              z.string().optional().describe("ISO datetime — only check shipments synced after this time"),
+    mode:               z.enum(["road","ocean","air","rail","multimodal"]).optional(),
+    origin_country:     z.string().length(2).optional(),
+    destination_country: z.string().length(2).optional(),
+    limit:              z.number().int().min(1).max(200).optional().default(50),
+  },
+  async (args) => {
+    try {
+      const r = atlas.getSlaViolations(args);
+      return ok({ ...r, checked_at: new Date().toISOString() });
+    } catch (e) { return err("INTERNAL_ERROR", e.message); }
+  }
+);
+
+server.tool("get_idle_assets",
+  "Return assets (trucks/vehicles) that appear to be stationary with engine running for longer than the threshold.",
+  {
+    idle_minutes: z.number().int().min(1).optional().default(30),
+  },
+  async ({ idle_minutes }) => {
+    try { return ok(atlas.getIdleAssets(idle_minutes)); }
+    catch (e) { return err("INTERNAL_ERROR", e.message); }
+  }
+);
+
+server.tool("get_anomalies",
+  "Return all tracking events flagged as exceptions since a given timestamp.",
+  {
+    since: z.string().optional().describe("ISO datetime threshold"),
     limit: z.number().int().min(1).max(200).optional().default(50),
   },
-  async ({ shipment_id, type, limit }) => {
-    try {
-      const result = atlas.listDocuments({ shipment_id, type, limit });
-      if (!result.documents.length) return err("NO_RESULTS", "No documents found.");
-      return ok(result);
-    } catch (e) { return err("INTERNAL_ERROR", e.message); }
-  }
-);
-
-// ──────────────────────────────────────────────────────────────────────────────
-// QUERY (natural language)
-// ──────────────────────────────────────────────────────────────────────────────
-
-server.tool(
-  "query",
-  "Full-text search across all indexed logistics data using natural language. Use specific tools (get_shipments, search_carriers, get_rate_history) when you know what type of data you need.",
-  {
-    question: z.string().describe("Natural language question about logistics data"),
-    mode: z.enum(["road","ocean","air","rail","multimodal"]).optional(),
-    limit: z.number().int().min(1).max(100).optional().default(10),
-  },
-  async ({ question, mode, limit }) => {
-    try {
-      const { results, context } = atlas.query(question, { mode, limit });
-      return ok({ query: question, result_count: results.length, results, context });
-    } catch (e) { return err("INTERNAL_ERROR", e.message); }
+  async (args) => {
+    try { return ok(atlas.getAnomalies(args)); }
+    catch (e) { return err("INTERNAL_ERROR", e.message); }
   }
 );
 
@@ -277,4 +311,4 @@ server.tool(
 
 const transport = new StdioServerTransport();
 await server.connect(transport);
-console.error("[ATLAS] MCP server v0.2 running on stdio");
+process.stderr.write("[ATLAS] MCP server ready (stdio). 35 tools registered.\n");

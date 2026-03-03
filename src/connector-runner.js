@@ -1,36 +1,33 @@
 /**
- * ATLAS Connector Runner
+ * ATLAS Connector Runner v1.0
  * Reads connectors[] from config.yml, polls data sources on schedule,
  * applies field mapping, and upserts into SQLite via Atlas class.
  *
- * Currently supported connector types:
- *   - rest_api: polls an HTTP endpoint on interval
+ * Supported types: rest_api, filesystem (CSV/JSON)
+ * Planned: imap, xlsx
  *
- * Planned (config accepted, not yet executed):
- *   - filesystem: watches/reads local files (csv, xlsx, json)
- *   - imap: reads emails from IMAP folders
+ * Incremental sync: each connector stores last_synced_at in connector_state table.
+ * On next run, passes it as query param (since_param in config) to fetch only new records.
  */
 
+import { readFileSync, readdirSync, existsSync } from 'fs';
+import { join, extname } from 'path';
 import { applyMapping, validateMapped, resolveEnv } from './mapper.js';
 
 export class ConnectorRunner {
   constructor(atlas, config) {
-    this.atlas = atlas;
+    this.atlas  = atlas;
     this.config = config;
     this.connectors = (config?.connectors ?? []).filter(c => c.enabled !== false);
     this.timers = [];
-    this.stats = {}; // id → { runs, errors, last_run, last_error }
   }
 
-  /** Start all enabled connectors */
   start() {
     if (!this.connectors.length) {
-      console.error('[ATLAS] No connectors configured — data must be loaded manually');
+      console.error('[ATLAS] No connectors configured — load data manually via seed or API');
       return;
     }
-    for (const connector of this.connectors) {
-      this._startConnector(connector);
-    }
+    for (const c of this.connectors) this._startConnector(c);
     console.error(`[ATLAS] ${this.connectors.length} connector(s) started`);
   }
 
@@ -39,57 +36,69 @@ export class ConnectorRunner {
     this.timers = [];
   }
 
-  /** Get runtime stats for all connectors (used by /api/connectors) */
   getStats() {
-    return this.connectors.map(c => ({
-      id: c.id,
-      name: c.name ?? c.id,
-      type: c.type,
-      entity: c.entity ?? c.sync?.entity ?? 'shipments',
-      interval_minutes: c.sync?.interval_minutes ?? 30,
-      enabled: c.enabled !== false,
-      ...(this.stats[c.id] ?? { runs: 0, errors: 0, last_run: null, last_error: null }),
-    }));
+    return this.connectors.map(c => {
+      const state = this.atlas.getConnectorState(c.id);
+      return {
+        id: c.id, name: c.name ?? c.id, type: c.type,
+        entity: c.entity ?? 'shipments',
+        interval_minutes: c.sync?.interval_minutes ?? 30,
+        enabled: true,
+        last_run: state.last_synced_at,
+        runs: state.runs,
+      };
+    });
   }
 
   _startConnector(connector) {
-    const intervalMs = (connector.sync?.interval_minutes ?? 30) * 60 * 1000;
-    this.stats[connector.id] = { runs: 0, errors: 0, last_run: null, last_error: null };
-
-    // Run once immediately, then on interval
+    const intervalMs = (connector.sync?.interval_minutes ?? 30) * 60_000;
     this._runConnector(connector);
-    const timer = setInterval(() => this._runConnector(connector), intervalMs);
-    this.timers.push(timer);
+    this.timers.push(setInterval(() => this._runConnector(connector), intervalMs));
   }
 
   async _runConnector(connector) {
     const start = Date.now();
     console.error(`[ATLAS] Connector "${connector.id}" sync started`);
+    let count = 0;
+    let error = null;
     try {
-      let count = 0;
       if (connector.type === 'rest_api') {
         count = await this._syncRestApi(connector);
       } else if (connector.type === 'filesystem') {
-        console.error(`[ATLAS] Connector type "filesystem" — not yet implemented`);
-      } else if (connector.type === 'imap') {
-        console.error(`[ATLAS] Connector type "imap" — not yet implemented`);
+        count = await this._syncFilesystem(connector);
       } else {
-        console.error(`[ATLAS] Unknown connector type: ${connector.type}`);
+        console.error(`[ATLAS] Connector type "${connector.type}" not yet implemented`);
       }
       const ms = Date.now() - start;
-      this.stats[connector.id].runs++;
-      this.stats[connector.id].last_run = new Date().toISOString();
-      console.error(`[ATLAS] Connector "${connector.id}" synced ${count} records in ${ms}ms`);
-    } catch (err) {
-      this.stats[connector.id].errors++;
-      this.stats[connector.id].last_error = err.message;
-      console.error(`[ATLAS] Connector "${connector.id}" error: ${err.message}`);
+      console.error(`[ATLAS] Connector "${connector.id}": synced ${count} records in ${ms}ms`);
+    } catch (e) {
+      error = e.message;
+      console.error(`[ATLAS] Connector "${connector.id}" error: ${e.message}`);
     }
+    // Always write state (even on error, to track runs)
+    this.atlas.setConnectorState(connector.id, {
+      last_synced_at: new Date().toISOString(),
+      last_count: count,
+      last_error: error,
+    });
   }
 
   async _syncRestApi(connector) {
-    const endpoint = resolveEnv(connector.endpoint);
+    const entity    = connector.entity ?? 'shipments';
+    const sinceParam = connector.sync?.since_param ?? null;
+
+    // Build URL — inject since_param for incremental sync
+    let endpoint = resolveEnv(connector.endpoint);
     if (!endpoint) throw new Error('Missing endpoint');
+
+    if (sinceParam) {
+      const state = this.atlas.getConnectorState(connector.id);
+      if (state.last_synced_at) {
+        const sep = endpoint.includes('?') ? '&' : '?';
+        endpoint += `${sep}${sinceParam}=${encodeURIComponent(state.last_synced_at)}`;
+        console.error(`[ATLAS] Connector "${connector.id}": incremental since ${state.last_synced_at}`);
+      }
+    }
 
     const headers = { 'Content-Type': 'application/json' };
     const auth = connector.auth ?? {};
@@ -100,92 +109,91 @@ export class ConnectorRunner {
       const creds = Buffer.from(`${resolveEnv(auth.username)}:${resolveEnv(auth.password)}`).toString('base64');
       headers['Authorization'] = `Basic ${creds}`;
     } else if (auth.type === 'api_key') {
-      const headerName = auth.header ?? 'X-API-Key';
-      headers[headerName] = resolveEnv(auth.key);
+      headers[auth.header ?? 'X-API-Key'] = resolveEnv(auth.key);
     }
 
-    const response = await fetch(endpoint, { headers, signal: AbortSignal.timeout(30_000) });
-    if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    const res = await fetch(endpoint, { headers, signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    const body = await res.json();
 
-    const body = await response.json();
-
-    // Support various envelope shapes: [], {data:[]}, {items:[]}, {results:[]}, {shipments:[]}
-    const entity = connector.entity ?? connector.sync?.entity ?? 'shipments';
-    let rows = Array.isArray(body) ? body : (
-      body.data ?? body.items ?? body.results ?? body[entity] ?? body.records ?? []
-    );
-
+    // Normalize response to array
+    let rows = Array.isArray(body) ? body :
+      (body.data ?? body.items ?? body.results ?? body[entity] ?? body.records ?? []);
     if (!Array.isArray(rows)) throw new Error('Response is not an array and no known envelope found');
 
-    const mapping = connector.mapping ?? null;
-    let synced = 0;
+    return this._upsertRows(connector, entity, rows);
+  }
 
-    for (const raw of rows) {
-      const record = mapping ? applyMapping(raw, mapping) : raw;
-      const { valid, errors } = validateMapped(entity, record);
-
-      if (!valid) {
-        console.error(`[ATLAS] Connector "${connector.id}" skipped record: ${errors.join(', ')}`);
-        continue;
-      }
-
-      try {
-        if (entity === 'shipments')  this.atlas.upsertShipment(record);
-        else if (entity === 'carriers') this.atlas.upsertCarrier(record);
-        else if (entity === 'rates')    this._upsertRate(record);
-        else if (entity === 'events')   this._upsertEvent(record);
-        synced++;
-      } catch (e) {
-        console.error(`[ATLAS] Upsert error for ${entity} id=${record.id}: ${e.message}`);
-      }
+  async _syncFilesystem(connector) {
+    const dir    = resolveEnv(connector.path ?? connector.workspace ?? './workspace');
+    const entity = connector.entity ?? 'documents';
+    if (!existsSync(dir)) {
+      console.error(`[ATLAS] Filesystem connector "${connector.id}": path not found: ${dir}`);
+      return 0;
     }
 
+    const formats  = connector.formats ?? ['csv', 'json'];
+    const files    = readdirSync(dir).filter(f => formats.includes(extname(f).slice(1).toLowerCase()));
+    let total      = 0;
+
+    for (const file of files) {
+      const filepath = join(dir, file);
+      try {
+        const rows = this._parseFile(filepath);
+        if (rows.length) total += this._upsertRows(connector, entity, rows);
+      } catch (e) {
+        console.error(`[ATLAS] Filesystem connector "${connector.id}" failed to parse ${file}: ${e.message}`);
+      }
+    }
+    return total;
+  }
+
+  _parseFile(filepath) {
+    const ext  = extname(filepath).slice(1).toLowerCase();
+    const text = readFileSync(filepath, 'utf8');
+
+    if (ext === 'json') {
+      const data = JSON.parse(text);
+      return Array.isArray(data) ? data : [data];
+    }
+    if (ext === 'csv') {
+      const lines  = text.trim().split('\n');
+      if (lines.length < 2) return [];
+      const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+      return lines.slice(1).map(line => {
+        const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
+        return Object.fromEntries(headers.map((h, i) => [h, vals[i] ?? '']));
+      });
+    }
+    return [];
+  }
+
+  _upsertRows(connector, entity, rows) {
+    const mapping = connector.mapping ?? null;
+    let synced    = 0;
+
+    for (const raw of rows) {
+      try {
+        const record = mapping ? applyMapping(raw, mapping) : raw;
+        const { valid, errors } = validateMapped(entity, record);
+        if (!valid) {
+          console.error(`[ATLAS] Connector "${connector.id}" skip: ${errors.join(', ')}`);
+          continue;
+        }
+        this._upsert(entity, record);
+        synced++;
+      } catch (e) {
+        console.error(`[ATLAS] Connector "${connector.id}" upsert error: ${e.message}`);
+      }
+    }
     return synced;
   }
 
-  _upsertRate(rate) {
-    if (!this.atlas.db) return;
-    this.atlas.db.prepare(`
-      INSERT INTO rates (id, carrier_id, origin_country, destination_country, mode, valid_from, valid_to, data)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        carrier_id = excluded.carrier_id,
-        origin_country = excluded.origin_country,
-        destination_country = excluded.destination_country,
-        mode = excluded.mode,
-        valid_from = excluded.valid_from,
-        valid_to = excluded.valid_to,
-        data = excluded.data
-    `).run(
-      rate.id,
-      rate.carrier_id ?? null,
-      rate.origin_country ?? rate.origin?.country?.toUpperCase() ?? null,
-      rate.destination_country ?? rate.destination?.country?.toUpperCase() ?? null,
-      rate.mode ?? null,
-      rate.valid_from ?? null,
-      rate.valid_to ?? null,
-      JSON.stringify(rate)
-    );
-  }
-
-  _upsertEvent(event) {
-    if (!this.atlas.db) return;
-    this.atlas.db.prepare(`
-      INSERT INTO events (id, shipment_id, timestamp, type, is_exception, data)
-      VALUES (?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        shipment_id = excluded.shipment_id,
-        timestamp = excluded.timestamp,
-        type = excluded.type,
-        is_exception = excluded.is_exception,
-        data = excluded.data
-    `).run(
-      event.id,
-      event.shipment_id ?? null,
-      event.timestamp ?? null,
-      event.type ?? null,
-      event.is_exception ? 1 : 0,
-      JSON.stringify(event)
-    );
+  _upsert(entity, record) {
+    const a = this.atlas;
+    if      (entity === 'shipments')       a.upsertShipment(record);
+    else if (entity === 'carriers')        a.upsertCarrier(record);
+    else if (entity === 'tracking_events' || entity === 'events') a.upsertTrackingEvent(record);
+    else                                   a.upsertRecord(entity, record);
   }
 }
