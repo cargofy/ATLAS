@@ -1,7 +1,7 @@
 {
   "name": "atlas-mcp",
-  "version": "0.1.0",
-  "description": "ATLAS \u2014 AI Transport Logistics Agent Standard. MCP server for logistics companies.",
+  "version": "0.2.0",
+  "description": "ATLAS — AI Transport Logistics Agent Standard. MCP server for logistics companies.",
   "type": "module",
   "license": "MIT",
   "scripts": {
