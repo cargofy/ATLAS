@@ -29,16 +29,35 @@ auth:
     #   description: "Local development"
     #   permissions: [read]
 
-# ─── AI Entity Extraction ─────────────────────────────────────────────────────
-# Drop any file (PDF, email, plain text, etc.) and AI extracts structured
-# logistics entities automatically. Requires an LLM API key.
+# ─── AI Models ────────────────────────────────────────────────────────────────
+# Configure one or more LLM providers. Each model gets an ID for role routing.
+# Role routing: assign models to 'default', 'chat', or 'extract' roles.
+# Backward compatible: a flat ai: block (without models:) still works.
 
 ai:
-  provider: claude              # claude | openai (also works with Ollama, Azure, LMStudio, vLLM)
-  model: claude-sonnet-4-20250514
-  api_key: "${ANTHROPIC_API_KEY}"
-  # base_url: http://localhost:11434/v1  # uncomment for Ollama or other OpenAI-compatible
-  max_tokens: 4096
+  models:
+    - id: claude
+      provider: claude
+      model: claude-sonnet-4-20250514
+      api_key: "${ANTHROPIC_API_KEY}"
+      max_tokens: 4096
+
+    # - id: gpt4o
+    #   provider: openai
+    #   model: gpt-4o
+    #   api_key: "${OPENAI_API_KEY}"
+    #   max_tokens: 4096
+
+    # - id: ollama-llama
+    #   provider: openai
+    #   model: llama3.2
+    #   api_key: "ollama"
+    #   base_url: "http://localhost:11434/v1"
+    #   max_tokens: 4096
+
+  default: claude
+  chat: claude
+  extract: claude
 
 # ─── Connectors ──────────────────────────────────────────────────────────────
 # Each connector pulls data from a source and maps it to ATLAS standard models.

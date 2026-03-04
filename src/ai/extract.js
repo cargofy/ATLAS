@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url';
 import { validateMapped } from '../mapper.js';
 import { MODEL_REGISTRY, MODEL_ALIASES, REQUIRED_FIELDS } from '../models.js';
 import { LlmClient } from './llm-client.js';
+import { ModelRegistry } from './model-registry.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MODELS_DIR = join(__dirname, '..', '..', 'models');
@@ -135,13 +136,15 @@ function resolveEntityType(entityType) {
  *
  * @param {string} text - Document text content
  * @param {object} meta - File metadata (filename, etc.)
- * @param {object} opts - Options: { config, maxChars }
+ * @param {object} opts - Options: { config, registry, maxChars }
  * @returns {Promise<{entities: Array<{entity_type, records}>, usage, error?}>}
  */
 export async function extract(text, meta = {}, opts = {}) {
-  const config = opts.config ?? {};
   const maxChars = opts.maxChars ?? 40_000;
-  const client = new LlmClient(config);
+  // Prefer registry (new multi-model), fall back to legacy config
+  const client = opts.registry instanceof ModelRegistry
+    ? opts.registry.getFor('extract')
+    : new LlmClient(opts.config ?? {});
 
   if (!client.isConfigured()) {
     return { entities: [], usage: { input_tokens: 0, output_tokens: 0 }, error: 'AI not configured' };

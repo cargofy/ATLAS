@@ -20,6 +20,7 @@ import { Atlas } from "./atlas.js";
 import { WebhookEmitter } from "./webhooks.js";
 import { buildHealthReport } from "./health.js";
 import { ConnectorRunner } from "./connector-runner.js";
+import { ModelRegistry } from "./ai/model-registry.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const UI_PATH = join(__dirname, "ui", "index.html");
@@ -39,6 +40,9 @@ runner.start();
 // Webhook emitter
 const webhooks = new WebhookEmitter(atlas.config);
 const SERVER_START = Date.now();
+
+// AI model registry (multi-model support)
+let modelRegistry = ModelRegistry.fromConfig(atlas.config?.ai);
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
@@ -501,11 +505,10 @@ const httpServer = createServer(async (req, res) => {
         const { processFile } = await import('./ai/extract-pipeline.js');
         const { ConnectorRunner: CR } = await import('./connector-runner.js');
         const tmpRunner = new CR(atlas, atlas.config ?? {});
-        const aiConfig = atlas.config?.ai ?? {};
 
         const result = await processFile(tmpPath, {
           atlas,
-          aiConfig,
+          registry: modelRegistry,
           upsert: (entity, record) => tmpRunner._upsert(entity, record),
         });
 
@@ -525,6 +528,10 @@ const httpServer = createServer(async (req, res) => {
     return json(atlas.getAiExtractStats());
   }
 
+  if (path === '/api/ai/models' && req.method === 'GET') {
+    return json({ models: modelRegistry.list() });
+  }
+
   // ── AI Chat endpoint ────────────────────────────────────────────────────────
 
   if (path === '/api/chat' && req.method === 'POST') {
@@ -532,13 +539,12 @@ const httpServer = createServer(async (req, res) => {
     req.on('data', d => body += d);
     req.on('end', async () => {
       try {
-        const { messages } = JSON.parse(body);
+        const { messages, model } = JSON.parse(body);
         if (!messages || !Array.isArray(messages) || !messages.length) {
           return json({ ok: false, error: 'messages array is required' }, 400);
         }
         const { handleChat } = await import('./ai/chat.js');
-        const aiConfig = atlas.config?.ai ?? {};
-        const result = await handleChat(messages, atlas, aiConfig);
+        const result = await handleChat(messages, atlas, modelRegistry, model);
         json({ ok: true, reply: result.reply, tool_calls: result.tool_calls, usage: result.usage });
       } catch (e) {
         json({ ok: false, error: e.message }, 500);
@@ -551,10 +557,11 @@ const httpServer = createServer(async (req, res) => {
 
   if (path === "/api/admin/reload" && req.method === "POST") {
     const result = atlas.reloadConfig();
+    modelRegistry = ModelRegistry.fromConfig(atlas.config?.ai);
     runner.stop();
     runner.connectors = (atlas.config?.connectors ?? []).filter(c => c.enabled !== false);
     runner.start();
-    return json({ ...result, connectors_restarted: runner.connectors.length });
+    return json({ ...result, connectors_restarted: runner.connectors.length, models_reloaded: modelRegistry.list().length });
   }
 
   if (path === "/api/admin/prune" && req.method === "POST") {

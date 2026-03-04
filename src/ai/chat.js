@@ -3,6 +3,7 @@
  */
 
 import { LlmClient } from './llm-client.js';
+import { ModelRegistry } from './model-registry.js';
 
 const MAX_TOOL_ITERATIONS = 5;
 
@@ -235,11 +236,21 @@ function executeTool(name, args, atlas) {
 /**
  * @param {Array<{role:string,content:string}>} messages - Conversation history
  * @param {import('../atlas.js').Atlas} atlas - Atlas instance
- * @param {object} aiConfig - AI configuration from config.yml
+ * @param {object|ModelRegistry} registryOrConfig - ModelRegistry or legacy AI config
+ * @param {string} [modelId] - Optional model ID to use (overrides role routing)
  * @returns {Promise<{reply:string, tool_calls:Array, usage:{input_tokens:number,output_tokens:number}}>}
  */
-export async function handleChat(messages, atlas, aiConfig = {}) {
-  const llm = new LlmClient(aiConfig);
+export async function handleChat(messages, atlas, registryOrConfig = {}, modelId) {
+  let llm;
+  if (registryOrConfig instanceof ModelRegistry) {
+    llm = modelId ? registryOrConfig.get(modelId) : registryOrConfig.getFor('chat');
+    if (!llm) llm = registryOrConfig.getFor('default');
+  } else {
+    llm = new LlmClient(registryOrConfig);
+  }
+  if (!llm) {
+    return { reply: 'No AI model configured.', tool_calls: [], usage: { input_tokens: 0, output_tokens: 0 } };
+  }
   const systemPrompt = buildSystemPrompt(atlas);
   const toolCallLog = [];
   let totalUsage = { input_tokens: 0, output_tokens: 0 };

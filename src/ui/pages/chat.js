@@ -19,6 +19,9 @@ const html = `
       </div>
     </div>
     <div class="chat-input-area">
+      <select class="chat-model-select" id="chatModelSelect" title="Choose AI model">
+        <option value="">Default model</option>
+      </select>
       <input type="text" class="chat-input" id="chatInput" placeholder="Ask about your logistics data..." />
       <button class="btn btn-primary" id="chatSendBtn">Send</button>
     </div>
@@ -96,7 +99,9 @@ async function send() {
       .filter(m => m.role === 'user' || m.role === 'assistant')
       .map(m => ({ role: m.role, content: m.content }));
 
-    const data = await api.post('/api/chat', { messages: apiMsgs });
+    const modelSelect = $('#chatModelSelect');
+    const selectedModel = modelSelect?.value || undefined;
+    const data = await api.post('/api/chat', { messages: apiMsgs, model: selectedModel });
     typing.remove();
 
     messages.push({
@@ -118,8 +123,27 @@ async function send() {
   }
 }
 
+async function loadModels() {
+  try {
+    const data = await api.get('/api/ai/models');
+    const select = $('#chatModelSelect');
+    if (!select || !data.models?.length) return;
+    select.innerHTML = '<option value="">Default model</option>';
+    const chatDefault = data.models.find(m => m.roles?.includes('chat'))
+      ?? data.models.find(m => m.roles?.includes('default'));
+    for (const m of data.models) {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = `${m.id} (${m.model})`;
+      select.appendChild(opt);
+    }
+    if (chatDefault) select.value = chatDefault.id;
+  } catch { /* models endpoint not available — keep default option */ }
+}
+
 function init() {
   render();
+  loadModels();
 
   // Send on Enter
   const input = $('#chatInput');

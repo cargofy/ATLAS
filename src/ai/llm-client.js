@@ -10,6 +10,8 @@ let _anthropic = null;
 let _openai = null;
 
 export class LlmClient {
+  #client = null;
+
   constructor(config = {}) {
     this.provider = config.provider ?? 'claude';
     this.model = config.model ?? (this.provider === 'claude' ? 'claude-sonnet-4-20250514' : 'gpt-4o');
@@ -39,12 +41,28 @@ export class LlmClient {
     return this._completeOpenAI(system, user);
   }
 
-  async _completeClaude(system, user) {
-    if (!_anthropic) {
-      const mod = await import('@anthropic-ai/sdk');
-      _anthropic = mod.default ?? mod.Anthropic;
+  async _getClient() {
+    if (this.#client) return this.#client;
+    if (this.provider === 'claude') {
+      if (!_anthropic) {
+        const mod = await import('@anthropic-ai/sdk');
+        _anthropic = mod.default ?? mod.Anthropic;
+      }
+      this.#client = new _anthropic({ apiKey: this.apiKey });
+    } else {
+      if (!_openai) {
+        const mod = await import('openai');
+        _openai = mod.default ?? mod.OpenAI;
+      }
+      const opts = { apiKey: this.apiKey };
+      if (this.baseUrl) opts.baseURL = this.baseUrl;
+      this.#client = new _openai(opts);
     }
-    const client = new _anthropic({ apiKey: this.apiKey });
+    return this.#client;
+  }
+
+  async _completeClaude(system, user) {
+    const client = await this._getClient();
     const res = await client.messages.create({
       model: this.model,
       max_tokens: this.maxTokens,
@@ -78,11 +96,7 @@ export class LlmClient {
   }
 
   async _chatWithToolsClaude(messages, tools, systemPrompt) {
-    if (!_anthropic) {
-      const mod = await import('@anthropic-ai/sdk');
-      _anthropic = mod.default ?? mod.Anthropic;
-    }
-    const client = new _anthropic({ apiKey: this.apiKey });
+    const client = await this._getClient();
     const claudeTools = tools.map(t => ({
       name: t.name,
       description: t.description,
@@ -113,13 +127,7 @@ export class LlmClient {
   }
 
   async _chatWithToolsOpenAI(messages, tools, systemPrompt) {
-    if (!_openai) {
-      const mod = await import('openai');
-      _openai = mod.default ?? mod.OpenAI;
-    }
-    const opts = { apiKey: this.apiKey };
-    if (this.baseUrl) opts.baseURL = this.baseUrl;
-    const client = new _openai(opts);
+    const client = await this._getClient();
     const oaiTools = tools.map(t => ({
       type: 'function',
       function: { name: t.name, description: t.description, parameters: t.input_schema },
@@ -151,13 +159,7 @@ export class LlmClient {
   }
 
   async _completeOpenAI(system, user) {
-    if (!_openai) {
-      const mod = await import('openai');
-      _openai = mod.default ?? mod.OpenAI;
-    }
-    const opts = { apiKey: this.apiKey };
-    if (this.baseUrl) opts.baseURL = this.baseUrl;
-    const client = new _openai(opts);
+    const client = await this._getClient();
     const res = await client.chat.completions.create({
       model: this.model,
       max_tokens: this.maxTokens,

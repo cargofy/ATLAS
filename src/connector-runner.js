@@ -221,11 +221,12 @@ export class ConnectorRunner {
 
     // Lazy-load AI pipeline
     const { processDirectory } = await import('./ai/extract-pipeline.js');
-    const aiConfig = this.config?.ai ?? {};
+    const { ModelRegistry } = await import('./ai/model-registry.js');
+    const registry = ModelRegistry.fromConfig(this.config?.ai ?? {});
 
     const result = await processDirectory(dir, {
       atlas: this.atlas,
-      aiConfig,
+      registry,
       upsert: (entity, record) => this._upsert(entity, record),
       force: connector.force ?? false,
     });

@@ -53,13 +53,14 @@ function walkDir(dir) {
  * @param {string} filePath - Path to the file
  * @param {object} opts
  * @param {object} opts.atlas - Atlas instance (for DB operations)
- * @param {object} opts.aiConfig - AI configuration from config.yml
+ * @param {object} opts.aiConfig - AI configuration from config.yml (legacy)
+ * @param {import('./model-registry.js').ModelRegistry} opts.registry - Model registry (new multi-model)
  * @param {Function} opts.upsert - Upsert function: (entity, record) => void
  * @param {boolean} opts.force - Skip dedup check
  * @returns {Promise<{ok, filename, hash, entities, records, usage, error?}>}
  */
 export async function processFile(filePath, opts = {}) {
-  const { atlas, aiConfig, upsert, force } = opts;
+  const { atlas, aiConfig, registry, upsert, force } = opts;
   const filename = filePath.split('/').pop();
 
   // Compute hash for dedup
@@ -89,8 +90,8 @@ export async function processFile(filePath, opts = {}) {
     return { ok: false, filename, hash, entities: 0, records: 0, usage: null, error };
   }
 
-  // Run AI extraction
-  const result = await extract(extracted.text, { filename }, { config: aiConfig });
+  // Run AI extraction — prefer registry, fall back to legacy aiConfig
+  const result = await extract(extracted.text, { filename }, { registry, config: aiConfig });
 
   if (result.error) {
     logExtraction(atlas, hash, filename, 0, 0, result.usage, result.error);
