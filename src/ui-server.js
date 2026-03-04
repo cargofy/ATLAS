@@ -524,6 +524,28 @@ const httpServer = createServer(async (req, res) => {
     return json(atlas.getAiExtractStats());
   }
 
+  // ── AI Chat endpoint ────────────────────────────────────────────────────────
+
+  if (path === '/api/chat' && req.method === 'POST') {
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', async () => {
+      try {
+        const { messages } = JSON.parse(body);
+        if (!messages || !Array.isArray(messages) || !messages.length) {
+          return json({ ok: false, error: 'messages array is required' }, 400);
+        }
+        const { handleChat } = await import('./ai/chat.js');
+        const aiConfig = atlas.config?.ai ?? {};
+        const result = await handleChat(messages, atlas, aiConfig);
+        json({ ok: true, reply: result.reply, tool_calls: result.tool_calls, usage: result.usage });
+      } catch (e) {
+        json({ ok: false, error: e.message }, 500);
+      }
+    });
+    return;
+  }
+
   // ── Admin endpoints (ATLAS-08, ATLAS-09) ─────────────────────────────────────
 
   if (path === "/api/admin/reload" && req.method === "POST") {

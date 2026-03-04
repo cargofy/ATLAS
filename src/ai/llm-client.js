@@ -60,6 +60,96 @@ export class LlmClient {
     };
   }
 
+  /**
+   * Chat with tool use support.
+   * @param {Array<{role:string,content:string|Array}>} messages
+   * @param {Array<{name:string,description:string,input_schema:object}>} tools
+   * @param {string} systemPrompt
+   * @returns {Promise<{text:string|null, tool_calls:Array|null, usage:{input_tokens:number,output_tokens:number}}>}
+   */
+  async chatWithTools(messages, tools, systemPrompt) {
+    if (!this.isConfigured()) {
+      throw new Error('AI not configured — set ai.api_key in config.yml or ANTHROPIC_API_KEY / OPENAI_API_KEY env var');
+    }
+    if (this.provider === 'claude') {
+      return this._chatWithToolsClaude(messages, tools, systemPrompt);
+    }
+    return this._chatWithToolsOpenAI(messages, tools, systemPrompt);
+  }
+
+  async _chatWithToolsClaude(messages, tools, systemPrompt) {
+    if (!_anthropic) {
+      const mod = await import('@anthropic-ai/sdk');
+      _anthropic = mod.default ?? mod.Anthropic;
+    }
+    const client = new _anthropic({ apiKey: this.apiKey });
+    const claudeTools = tools.map(t => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema,
+    }));
+    const res = await client.messages.create({
+      model: this.model,
+      max_tokens: this.maxTokens,
+      system: systemPrompt,
+      tools: claudeTools,
+      messages,
+    });
+    const text = res.content.filter(c => c.type === 'text').map(c => c.text).join('') || null;
+    const toolCalls = res.content.filter(c => c.type === 'tool_use').map(c => ({
+      id: c.id,
+      name: c.name,
+      input: c.input,
+    }));
+    return {
+      text,
+      tool_calls: toolCalls.length ? toolCalls : null,
+      stop_reason: res.stop_reason,
+      usage: {
+        input_tokens: res.usage?.input_tokens ?? 0,
+        output_tokens: res.usage?.output_tokens ?? 0,
+      },
+    };
+  }
+
+  async _chatWithToolsOpenAI(messages, tools, systemPrompt) {
+    if (!_openai) {
+      const mod = await import('openai');
+      _openai = mod.default ?? mod.OpenAI;
+    }
+    const opts = { apiKey: this.apiKey };
+    if (this.baseUrl) opts.baseURL = this.baseUrl;
+    const client = new _openai(opts);
+    const oaiTools = tools.map(t => ({
+      type: 'function',
+      function: { name: t.name, description: t.description, parameters: t.input_schema },
+    }));
+    const oaiMessages = [{ role: 'system', content: systemPrompt }, ...messages];
+    const res = await client.chat.completions.create({
+      model: this.model,
+      max_tokens: this.maxTokens,
+      tools: oaiTools,
+      messages: oaiMessages,
+    });
+    const choice = res.choices?.[0];
+    const msg = choice?.message;
+    const text = msg?.content || null;
+    const toolCalls = msg?.tool_calls?.map(tc => ({
+      id: tc.id,
+      name: tc.function.name,
+      input: JSON.parse(tc.function.arguments),
+    })) || null;
+    return {
+      text,
+      tool_calls: toolCalls,
+      stop_reason: choice?.finish_reason,
+      usage: {
+        input_tokens: res.usage?.prompt_tokens ?? 0,
+        output_tokens: res.usage?.completion_tokens ?? 0,
+      },
+    };
+  }
+
   async _completeOpenAI(system, user) {
     if (!_openai) {
       const mod = await import('openai');
