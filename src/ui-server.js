@@ -8,7 +8,7 @@
  */
 import "dotenv/config";
 import { createServer } from "http";
-import { readFileSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 
@@ -16,6 +16,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { z } from "zod";
 
+import YAML from "yaml";
 import { Atlas } from "./atlas.js";
 import { WebhookEmitter } from "./webhooks.js";
 import { buildHealthReport } from "./health.js";
@@ -270,6 +271,66 @@ const httpServer = createServer(async (req, res) => {
     res.writeHead(status, { "Content-Type": "application/json" });
     res.end(JSON.stringify(data));
   };
+
+  // ── Setup wizard endpoints ────────────────────────────────────────────────
+
+  if (path === "/api/setup/status" && req.method === "GET") {
+    const needsSetup = atlas.configSource !== 'config';
+    return json({
+      needsSetup,
+      configured: {
+        instanceName: atlas.config?.atlas?.name ?? null,
+        ai: !!(atlas.config?.ai?.provider || atlas.config?.ai?.models?.length),
+        auth: !!(atlas.config?.auth?.tokens?.length),
+      },
+    });
+  }
+
+  if (path === "/api/setup/test-ai" && req.method === "POST") {
+    let body = "";
+    req.on("data", c => body += c);
+    req.on("end", async () => {
+      try {
+        const { provider, api_key, model, base_url } = JSON.parse(body);
+        const { LlmClient } = await import("./ai/llm-client.js");
+        const client = new LlmClient({
+          provider: provider === 'claude' ? 'claude' : 'openai',
+          api_key,
+          model,
+          base_url: base_url || undefined,
+          max_tokens: 32,
+        });
+        if (!client.isConfigured()) return json({ ok: false, error: "API key is missing" }, 400);
+        const result = await client.complete("Reply with exactly: ok", "ping");
+        json({ ok: true, reply: result.text?.slice(0, 100) });
+      } catch (e) {
+        json({ ok: false, error: e.message }, 500);
+      }
+    });
+    return;
+  }
+
+  if (path === "/api/setup/save" && req.method === "POST") {
+    let body = "";
+    req.on("data", c => body += c);
+    req.on("end", () => {
+      try {
+        const config = JSON.parse(body);
+        const configPath = join(__dirname, "..", "config.yml");
+        writeFileSync(configPath, YAML.stringify(config, { indent: 2 }), "utf8");
+        // Reload same way as admin/reload
+        atlas.loadConfig(configPath);
+        modelRegistry = ModelRegistry.fromConfig(atlas.config?.ai);
+        runner.stop();
+        runner.connectors = (atlas.config?.connectors ?? []).filter(c => c.enabled !== false);
+        runner.start();
+        json({ ok: true, message: "Configuration saved", timestamp: new Date().toISOString() });
+      } catch (e) {
+        json({ ok: false, error: e.message }, 500);
+      }
+    });
+    return;
+  }
 
   if (path === "/api/status" && req.method === "GET") {
     return json({

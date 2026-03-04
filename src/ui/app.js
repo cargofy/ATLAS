@@ -1,5 +1,6 @@
 import { Router }  from './lib/router.js';
 import { $, on }   from './lib/utils.js';
+import { api }     from './lib/api.js';
 
 import dashboard   from './pages/dashboard.js';
 import connectors  from './pages/connectors.js';
@@ -7,6 +8,7 @@ import explorer    from './pages/explorer.js';
 import playground  from './pages/playground.js';
 import chat        from './pages/chat.js';
 import importPage  from './pages/import.js';
+import setup       from './pages/setup.js';
 
 const router = new Router($('#page-content'));
 
@@ -16,7 +18,8 @@ router
   .add('explorer',    explorer)
   .add('playground',  playground)
   .add('chat',        chat)
-  .add('import',      importPage);
+  .add('import',      importPage)
+  .add('setup',       setup);
 
 // Nav clicks — event delegation, no inline handlers
 on($('.nav'), 'click', '[data-page]', (_e, item) => {
@@ -26,4 +29,15 @@ on($('.nav'), 'click', '[data-page]', (_e, item) => {
 // When import/seed loads data, the next visit to dashboard picks it up automatically
 // (dashboard.init() always fetches fresh). No cross-page coupling needed.
 
-router.start('dashboard');
+(async () => {
+  try {
+    const { needsSetup } = await api.get('/api/setup/status');
+    if (needsSetup) {
+      const sidebar = $('.sidebar');
+      if (sidebar) sidebar.style.display = 'none';
+      router.start('setup');
+      return;
+    }
+  } catch {}
+  router.start('dashboard');
+})();

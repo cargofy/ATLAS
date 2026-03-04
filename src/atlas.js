@@ -18,6 +18,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 export class Atlas {
   constructor() {
     this.config = null;
+    this.configSource = null;
     this.db = null;
     this._enabledModels = new Set();
   }
@@ -28,7 +29,8 @@ export class Atlas {
     const resolved = configPath ?? join(__dirname, "..", "config.yml");
     const fallback  = join(__dirname, "..", "config.example.yml");
     const target    = existsSync(resolved) ? resolved : (existsSync(fallback) ? fallback : null);
-    if (!target) { this.config = {}; return this.config; }
+    if (!target) { this.config = {}; this.configSource = null; return this.config; }
+    this.configSource = target === resolved && existsSync(resolved) ? 'config' : 'example';
     this.config = YAML.parse(readFileSync(target, "utf8")) ?? {};
     return this.config;
   }

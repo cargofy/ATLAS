@@ -348,3 +348,92 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* -- Setup Wizard -- */
+.setup-page {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh; padding: 2rem; background: var(--bg);
+}
+.setup-wizard {
+  width: 100%; max-width: 580px;
+}
+.setup-stepper {
+  display: flex; align-items: center; justify-content: center; gap: 0; margin-bottom: 2.5rem;
+}
+.setup-step {
+  display: flex; align-items: center; gap: 0;
+}
+.setup-step-circle {
+  width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--border2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.78rem; font-weight: 700; font-family: var(--mono);
+  color: var(--muted); background: var(--bg); transition: all 0.2s ease;
+}
+.setup-step.active .setup-step-circle {
+  border-color: var(--accent); color: var(--accent); background: var(--bg);
+}
+.setup-step.completed .setup-step-circle {
+  border-color: var(--accent); background: var(--accent); color: #fff;
+}
+.setup-step-line {
+  width: 48px; height: 2px; background: var(--border); margin: 0 4px;
+  transition: background 0.2s ease;
+}
+.setup-step.completed + .setup-step .setup-step-line,
+.setup-step.completed .setup-step-line { background: var(--accent); }
+.setup-panel {
+  background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+  padding: 2rem; display: none;
+}
+.setup-panel.active { display: block; }
+.setup-panel h2 {
+  font-size: 1.35rem; font-weight: 700; letter-spacing: -0.03em;
+  margin-bottom: 0.35rem; color: var(--text);
+}
+.setup-panel p.setup-desc {
+  color: var(--body); font-size: 0.9rem; margin-bottom: 1.5rem; line-height: 1.5;
+}
+.setup-actions {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 1.75rem; padding-top: 1.25rem; border-top: 1px solid var(--border);
+}
+.setup-field { margin-bottom: 1.15rem; }
+.setup-field label {
+  display: block; font-size: 0.75rem; font-weight: 600; color: var(--muted);
+  margin-bottom: 0.4rem; letter-spacing: 0.05em; text-transform: uppercase;
+}
+.setup-field input, .setup-field select {
+  width: 100%; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 8px; padding: 0.6rem 0.85rem; color: var(--text);
+  font-size: 0.875rem; font-family: var(--sans); outline: none;
+  transition: border-color 0.2s ease;
+}
+.setup-field input:focus, .setup-field select:focus { border-color: var(--accent); }
+.setup-test-result {
+  font-size: 0.82rem; padding: 0.5rem 0.75rem; border-radius: 8px;
+  margin-top: 0.75rem; display: none;
+}
+.setup-test-result.success {
+  display: block; background: var(--green-bg); color: var(--green);
+}
+.setup-test-result.error {
+  display: block; background: var(--red-bg); color: var(--red);
+}
+.setup-summary {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 1.25rem; font-size: 0.85rem; line-height: 1.8;
+}
+.setup-summary dt { color: var(--muted); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+.setup-summary dd { color: var(--text); font-weight: 500; margin-bottom: 0.75rem; font-family: var(--mono); font-size: 0.82rem; }
+.setup-token-row { display: flex; gap: 0.5rem; }
+.setup-token-row input { flex: 1; }
+.setup-logo {
+  text-align: center; margin-bottom: 1.5rem;
+}
+.setup-logo-text {
+  font-size: 1.1rem; font-weight: 800; letter-spacing: 0.1em; color: var(--text);
+}
+.setup-logo-text span { color: var(--body); }
+.setup-logo-sub {
+  font-size: 0.7rem; color: var(--muted); margin-top: 0.2rem; font-family: var(--mono);
+}
