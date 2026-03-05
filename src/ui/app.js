@@ -9,6 +9,7 @@ import playground  from './pages/playground.js';
 import chat        from './pages/chat.js';
 import importPage  from './pages/import.js';
 import knowledge   from './pages/knowledge.js';
+import settings    from './pages/settings.js';
 import setup       from './pages/setup.js';
 
 const router = new Router($('#page-content'));
@@ -21,10 +22,11 @@ router
   .add('chat',        chat)
   .add('knowledge',   knowledge)
   .add('import',      importPage)
+  .add('settings',    settings)
   .add('setup',       setup);
 
 // Nav clicks — event delegation, no inline handlers
-on($('.nav'), 'click', '[data-page]', (_e, item) => {
+on($('.sidebar'), 'click', '[data-page]', (_e, item) => {
   router.navigate(item.dataset.page);
 });
 

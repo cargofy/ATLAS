@@ -46,6 +46,7 @@ body {
 .nav-item.active { background: var(--bg); color: var(--text); box-shadow: var(--shadow-sm); border: 1px solid var(--border); }
 .nav-icon { font-size: 1rem; width: 1.2rem; text-align: center; }
 
+.nav-bottom { padding: 0 0.6rem 0.25rem; border-top: 1px solid var(--border); padding-top: 0.5rem; }
 .sidebar-footer {
   padding: 0.75rem 1rem; border-top: 1px solid var(--border);
   display: flex; align-items: center; gap: 0.5rem;
@@ -541,3 +542,75 @@ body {
   flex: 1; display: flex; align-items: center; justify-content: center;
   color: var(--muted); font-size: 0.9rem; text-align: center;
 }
+
+/* -- Settings -- */
+.settings-tabs {
+  display: inline-flex; gap: 2px; margin-bottom: 1.25rem;
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 10px; padding: 4px;
+}
+.settings-tab {
+  padding: 0.45rem 1.15rem; border-radius: 8px; cursor: pointer; font-size: 0.84rem;
+  font-weight: 500; color: var(--muted); transition: all 0.15s ease;
+  border: none; background: none; font-family: var(--sans);
+}
+.settings-tab.active { background: var(--bg); color: var(--text); box-shadow: var(--shadow-sm); }
+.settings-tab:hover:not(.active) { color: var(--body); }
+.settings-panel { display: none; }
+.settings-panel.active { display: block; }
+.settings-section {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  padding: 1.5rem; margin-bottom: 1rem;
+}
+.settings-section-title {
+  font-size: 0.95rem; font-weight: 700; color: var(--text); margin-bottom: 1rem;
+  padding-bottom: 0.6rem; border-bottom: 1px solid var(--border);
+}
+.settings-row {
+  margin-bottom: 0.85rem; display: flex; align-items: center; gap: 1rem;
+}
+.settings-row > label {
+  width: 140px; flex-shrink: 0; font-size: 0.8rem; font-weight: 600;
+  color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
+}
+.settings-input {
+  flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.55rem 0.85rem; color: var(--text); font-size: 0.875rem; font-family: var(--sans);
+  outline: none; transition: border-color 0.2s ease;
+}
+.settings-input:focus { border-color: var(--accent); }
+.settings-input-sm { max-width: 220px; }
+.settings-card {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 10px;
+  margin-bottom: 0.75rem; overflow: hidden;
+}
+.settings-card-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.65rem 1rem; border-bottom: 1px solid var(--border); background: var(--bg3);
+}
+.settings-card-title { font-weight: 600; font-size: 0.82rem; color: var(--text); }
+.settings-card-body { padding: 0.85rem 1rem; }
+.settings-row-inline { display: flex; gap: 0.75rem; margin-bottom: 0.6rem; flex-wrap: wrap; }
+.settings-row-inline:last-child { margin-bottom: 0; }
+.settings-mini-field {
+  display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-width: 120px;
+}
+.settings-mini-field > span {
+  font-size: 0.7rem; font-weight: 600; color: var(--muted); text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.settings-mini-field .settings-input-sm { max-width: none; }
+.settings-actions {
+  display: flex; align-items: center; gap: 1rem; margin-top: 1.25rem;
+  padding-top: 1rem; border-top: 1px solid var(--border);
+}
+.settings-status { font-size: 0.82rem; font-family: var(--mono); }
+.settings-status.success { color: var(--green); }
+.settings-status.error { color: var(--red); }
+.settings-yaml {
+  width: 100%; min-height: calc(100vh - 18rem); border: 1px solid var(--border);
+  border-radius: 10px; padding: 1rem; font-family: var(--mono); font-size: 0.82rem;
+  line-height: 1.7; color: var(--text); background: var(--bg); resize: vertical;
+  outline: none;
+}
+.settings-yaml:focus { border-color: var(--accent); }
+.settings-remove-btn { padding: 0.2rem 0.6rem !important; font-size: 0.72rem !important; }

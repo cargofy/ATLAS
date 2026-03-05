@@ -614,6 +614,46 @@ const httpServer = createServer(async (req, res) => {
     return;
   }
 
+  // ── Config endpoints (Settings page) ────────────────────────────────────────
+
+  if (path === '/api/config' && req.method === 'GET') {
+    try {
+      const configPath = join(__dirname, '..', 'config.yml');
+      if (existsSync(configPath)) {
+        const raw = readFileSync(configPath, 'utf8');
+        return json({ ok: true, yaml: raw, config: atlas.config });
+      }
+      return json({ ok: true, yaml: '', config: atlas.config });
+    } catch (e) { return json({ error: e.message }, 500); }
+  }
+
+  if (path === '/api/config' && req.method === 'POST') {
+    let body = '';
+    req.on('data', d => body += d);
+    req.on('end', () => {
+      try {
+        const { yaml: rawYaml } = JSON.parse(body);
+        // Validate YAML parses correctly before saving
+        const parsed = YAML.parse(rawYaml);
+        if (typeof parsed !== 'object' || parsed === null) {
+          return json({ ok: false, error: 'Invalid YAML: must be an object' }, 400);
+        }
+        const configPath = join(__dirname, '..', 'config.yml');
+        writeFileSync(configPath, rawYaml, 'utf8');
+        // Reload
+        atlas.loadConfig(configPath);
+        modelRegistry = ModelRegistry.fromConfig(atlas.config?.ai);
+        runner.stop();
+        runner.connectors = (atlas.config?.connectors ?? []).filter(c => c.enabled !== false);
+        runner.start();
+        json({ ok: true, message: 'Config saved and reloaded', timestamp: new Date().toISOString() });
+      } catch (e) {
+        json({ ok: false, error: e.message }, 400);
+      }
+    });
+    return;
+  }
+
   // ── Admin endpoints (ATLAS-08, ATLAS-09) ─────────────────────────────────────
 
   if (path === "/api/admin/reload" && req.method === "POST") {
