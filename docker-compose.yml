@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   atlas:
     build: .
@@ -11,14 +9,15 @@ services:
     volumes:
       - ./config.yml:/app/config.yml:ro
       - atlas_data:/data/atlas
-      # Mount your data directories (read-only)
-      # - /path/to/your/contracts:/data/contracts:ro
-      # - /path/to/your/documents:/data/documents:ro
+      - ./knowledge:/app/knowledge
+      - ./inbox:/app/inbox
     environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - EMAIL_PASSWORD=${EMAIL_PASSWORD}
       - TMS_API_KEY=${TMS_API_KEY}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000/api/health').then(r=>{if(!r.ok)throw r;process.exit(0)}).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 3

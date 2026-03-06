@@ -1,32 +1,38 @@
-FROM node:20-alpine
+# Stage 1: build native dependencies
+FROM node:20-alpine AS build
 
-# Install build tools needed for better-sqlite3 native module
 RUN apk add --no-cache python3 make g++
 
 WORKDIR /app
 
-# Copy package files first (layer caching)
-COPY package*.json ./
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
-# Install production dependencies only
-RUN npm install --production
+# Stage 2: runtime
+FROM node:20-alpine
 
-# Copy source
-COPY . .
+WORKDIR /app
 
-# Create data directory for SQLite
-RUN mkdir -p /data/atlas
+COPY --from=build /app/node_modules ./node_modules
+COPY package.json config.example.yml ./
+COPY src/ ./src/
+COPY seed/ ./seed/
+COPY models/ ./models/
+COPY knowledge/ ./knowledge/
+COPY bin/ ./bin/
 
-# Non-root user for security
-RUN addgroup -S atlas && adduser -S atlas -G atlas
-RUN chown -R atlas:atlas /app /data/atlas
+ENV ATLAS_DB_PATH=/data/atlas/atlas.db
+ENV ATLAS_PORT=3000
+
+RUN mkdir -p /data/atlas /app/knowledge /app/inbox \
+ && addgroup -S atlas && adduser -S atlas -G atlas \
+ && chown -R atlas:atlas /app /data/atlas
+
 USER atlas
 
 EXPOSE 3000
 
-# Health check via HTTP (add HTTP health endpoint in v0.2)
-# HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD curl -f http://localhost:3000/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
+  CMD node -e "fetch('http://localhost:3000/api/health').then(r=>{if(!r.ok)throw r;process.exit(0)}).catch(()=>process.exit(1))"
 
-# Default: web UI on port 3000
-# For MCP stdio: docker run ... node src/index.js
 CMD ["node", "src/ui-server.js"]

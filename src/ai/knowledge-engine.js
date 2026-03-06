@@ -256,16 +256,22 @@ Analyze the new information against existing knowledge. Return JSON with updates
         if (!retryParsed.ok) {
           return { ok: false, error: 'Failed to parse LLM response as JSON after retry', usage: response.usage };
         }
-        const applied = await this.applyUpdates(retryParsed.data.updates ?? [], source, date);
-        return { ok: true, analysis: retryParsed.data.analysis, updates: applied, usage: retryResponse.usage };
+        const retryUpdates = Array.isArray(retryParsed.data.updates) ? retryParsed.data.updates : [];
+        const validRetryUpdates = retryUpdates.filter(u => u && typeof u === 'object' && u.action && u.path);
+        const applied = this.applyUpdates(validRetryUpdates, source, date);
+        return { ok: true, analysis: retryParsed.data.analysis ?? '', updates: applied, usage: retryResponse.usage };
       } catch (e) {
         return { ok: false, error: `Retry failed: ${e.message}`, usage: response.usage };
       }
     }
 
+    // Validate structure
+    const updates = Array.isArray(parsed.data.updates) ? parsed.data.updates : [];
+    const validUpdates = updates.filter(u => u && typeof u === 'object' && u.action && u.path);
+
     // Apply updates
-    const applied = await this.applyUpdates(parsed.data.updates ?? [], source, date);
-    return { ok: true, analysis: parsed.data.analysis, updates: applied, usage: response.usage };
+    const applied = this.applyUpdates(validUpdates, source, date);
+    return { ok: true, analysis: parsed.data.analysis ?? '', updates: applied, usage: response.usage };
   }
 
   /**
@@ -274,9 +280,9 @@ Analyze the new information against existing knowledge. Return JSON with updates
    * @param {Array} updates - Array of update objects from LLM
    * @param {string} source - Source identifier for attribution
    * @param {string} date - Date string for attribution
-   * @returns {Promise<Array>} Applied updates with status
+   * @returns {Array} Applied updates with status
    */
-  async applyUpdates(updates, source, date) {
+  applyUpdates(updates, source, date) {
     const results = [];
 
     for (const update of updates) {
@@ -363,6 +369,9 @@ Analyze the new information against existing knowledge. Return JSON with updates
   /** @private */
   _applyMarkContradiction(update, source, date) {
     const { path: relPath, section_header, contradiction } = update;
+    if (!contradiction || !contradiction.current_value || !contradiction.new_value) {
+      throw new Error('mark_contradiction requires contradiction.current_value and contradiction.new_value');
+    }
     const src = update.source ?? source;
 
     let existing;

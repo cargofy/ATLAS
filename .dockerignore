@@ -1,0 +1,13 @@
+.git
+.github
+.idea
+.claude
+.DS_Store
+.env
+node_modules
+dist
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+settings.local.json

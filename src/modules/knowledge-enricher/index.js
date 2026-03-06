@@ -28,7 +28,7 @@ export default {
   },
 
   async run() {
-    if (!ctx.config.auto_enrich_extractions && ctx.config.auto_enrich_extractions !== undefined) {
+    if (ctx.config.auto_enrich_extractions === false) {
       return { records_processed: 0, skipped: true };
     }
 
@@ -71,7 +71,7 @@ export default {
     for (const entry of entries) {
       try {
         // Build summary from recent DB records related to this extraction
-        const summary = buildSummaryForEntry(ctx.atlas, entry);
+        const summary = buildSummaryForEntry(entry);
         const topic = guessTopicFromFilename(entry.filename);
 
         const result = await engine.enrichFromText(
@@ -122,31 +122,12 @@ export default {
 };
 
 /**
- * Build a text summary from DB records related to an extraction.
+ * Build a text summary from an ai_extract_log entry.
+ * Only includes metadata from the extraction itself — does not query
+ * unrelated tables (no way to correlate log entries to specific DB records).
  */
-function buildSummaryForEntry(atlas, entry) {
-  const parts = [`File: ${entry.filename}`, `Entities: ${entry.entity_count}, Records: ${entry.record_count}`];
-
-  // Try to pull recent records from common entity tables
-  const tables = ['shipments', 'carriers', 'routes', 'rates', 'documents', 'events'];
-  for (const table of tables) {
-    try {
-      const rows = atlas.db.prepare(
-        `SELECT data FROM ${table} ORDER BY rowid DESC LIMIT 5`
-      ).all();
-      if (rows.length) {
-        parts.push(`\nRecent ${table}:`);
-        for (const row of rows) {
-          try {
-            const data = JSON.parse(row.data);
-            parts.push(`  - ${JSON.stringify(data).slice(0, 200)}`);
-          } catch { /* skip */ }
-        }
-      }
-    } catch { /* table might not exist */ }
-  }
-
-  return parts.join('\n');
+function buildSummaryForEntry(entry) {
+  return `Extracted file: ${entry.filename}\nEntity groups: ${entry.entity_count}\nTotal records: ${entry.record_count}\nProcessed at: ${entry.processed_at}`;
 }
 
 /**
